@@ -94,6 +94,19 @@ class RepairTests(unittest.TestCase):
     def test_evaluation_requires_assertions(self):
         self.conversation()
         with self.assertRaises(ValueError):evaluate.evaluate(self.root,self.db,[{'id':'empty','query':'pear','expected':{}}])
+    def test_evaluation_does_not_destroy_vectors_for_same_batch(self):
+        try:import numpy
+        except ImportError:self.skipTest('NumPy unavailable')
+        class Provider:
+            fingerprint='fixture-only';dimension=2
+            def encode(self,texts,query=False):return [[1.0,1.0] for text in texts]
+        self.conversation();folder=self.root/'memory/requests';folder.mkdir(parents=True)
+        evalpath=self.root/'memory/evaluation/cases.json';evalpath.parent.mkdir(parents=True);evalpath.write_text(json.dumps([{'id':'source','query':'pear','project':'demo','expected':{'paths_all':['conversations/demo/one.json']}}]))
+        items=[{'id':'1'*32,'operation':'evaluate','cases_path':'memory/evaluation/cases.json'},{'id':'2'*32,'operation':'recall','query':'pear comet','project':'demo','mode':'hybrid'}]
+        for item in items:(folder/(item['id']+'.json')).write_text(json.dumps(item))
+        model=Path(self.tmp.name)/'model';model.mkdir();(model/'manifest.json').write_text('{}')
+        with patch('embeddings.LocalE5',return_value=Provider()):self.assertEqual(cloud.run(self.root,self.db,model),2)
+        result=json.loads((self.root/'memory/results'/('2'*32+'.json')).read_text());self.assertGreaterEqual(len(result['results']),2)
     def test_vault_roundtrip_and_tampering(self):
         try:from Cryptodome.Cipher import AES
         except ImportError:self.skipTest('Optional privacy runtime unavailable')

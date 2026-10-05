@@ -130,7 +130,8 @@ def run(root, db, model_dir):
         elif op=='conflicts':result['result']=memory_bridge.conflicts(memory_bridge.load(root))
         elif op=='evaluate':
             from evaluate import evaluate
-            result['result']=evaluate(root,db,json.loads((root/item['cases_path']).read_text()))
+            evaluation_db=Path(db).with_name(Path(db).stem+'.evaluation.sqlite3')
+            result['result']=evaluate(root,evaluation_db,json.loads((root/item['cases_path']).read_text()))
         elif op=='reflect':
             result['result']=manager.reflect(root,item['project'])
             if item.get('save'):
