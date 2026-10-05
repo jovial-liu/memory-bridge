@@ -14,8 +14,32 @@ import rag
 import privacy
 
 
+def normalize_event_payload(event):
+    """Normalize connector-era event aliases into protocol-v1 fields without losing source text."""
+    event=dict(event)
+    role=event.get('evidence_role')
+    if role in {'user_direct_confirmation','user-confirmed','direct-user'}:
+        event['evidence_role']='user'
+    scope=dict(event.get('scope') or {})
+    scope.setdefault('project', scope.get('topic') or 'global')
+    scope.setdefault('platform', 'user-statement')
+    scope.setdefault('account', 'unknown')
+    event['scope']=scope
+    kind=event.get('kind')
+    if kind not in memory_bridge.KINDS:
+        event.setdefault('original_kind', kind or 'unknown')
+        label=(kind or '').casefold()
+        if any(token in label for token in ('preference','style','behavior','workflow')):
+            event['kind']='preference'
+        elif any(token in label for token in ('plan','goal','strategy','principle','direction','structure','priority')):
+            event['kind']='decision'
+        else:
+            event['kind']='fact'
+    return event
+
+
 def request_events(item):
-    """Return one or more event payloads while preserving the v1 single-event form."""
+    """Return one or more normalized event payloads while preserving the v1 single-event form."""
     has_one = 'event' in item
     has_many = 'events' in item
     if has_one and has_many:
@@ -26,11 +50,11 @@ def request_events(item):
             raise ValueError('events must contain 1..100 event objects')
         if not all(isinstance(event, dict) for event in events):
             raise ValueError('events must contain objects')
-        return events
+        return [normalize_event_payload(event) for event in events]
     if has_one:
         if not isinstance(item['event'], dict):
             raise ValueError('event must be an object')
-        return [item['event']]
+        return [normalize_event_payload(item['event'])]
     return []
 
 
