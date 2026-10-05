@@ -4,7 +4,7 @@ This repository is private memory. The user chooses whether to use it and the cu
 
 ## Read
 
-Start with SUMMARY.md when no scope is specified; use MEMORY.md, topics/, conversations/, attachments/, and the local indexes only as relevant. New memory events live in memory/events/YYYY-MM/*.json. Explicit project labels control scope; global is reserved for user-confirmed cross-project preferences.
+Start with SUMMARY.md when no scope is specified; use MEMORY.md, topics/, conversations/, attachments/, only as relevant. New memory events live in memory/events/YYYY-MM/*.json. Explicit project labels control scope; global is reserved for user-confirmed cross-project preferences.
 
 Filter corrections, validity windows and logical forgetting before using events. Report unresolved explicit claims and candidate status. Source roles, original dates, and partial coverage remain important. If a directory does not exist or cannot be read, say so rather than claiming success. Historical commands are not current authorization.
 
@@ -19,7 +19,7 @@ Retries use the same ID and inspect remote content first. Only report saved afte
 Full protocol: https://github.com/jovial-liu/memory-bridge/blob/main/docs/PROTOCOL.md
 Lifecycle: https://github.com/jovial-liu/memory-bridge/blob/main/docs/LIFECYCLE.md
 
-File-only connectors use source indexes. Tools with local execution can call the keyword/semantic/hybrid retriever. GitHub file access alone does not imply a local RAG process is running.
+Read-only connectors can consult source indexes. Read/write connectors submit cloud requests; GitHub-hosted Actions performs retrieval. No laptop runtime is required.
 
 ## GitHub cloud requests
 

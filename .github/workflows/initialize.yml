@@ -1,0 +1,39 @@
+name: Initialize Private Memory
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: memory-cloud
+  cancel-in-progress: false
+jobs:
+  initialize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a private repository
+        env:
+          IS_PRIVATE: ${{ github.event.repository.private }}
+        run: test "$IS_PRIVATE" = "true" || { echo "Create a PRIVATE repository from this template first."; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Create empty memory and entry point
+        env:
+          MEMORY_REPOSITORY: ${{ github.repository }}
+        run: python initialize.py --root . --repository "$MEMORY_REPOSITORY"
+      - name: Save initialized memory
+        env:
+          MEMORY_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add AI_MEMORY.md SUMMARY.md MEMORY.md memory conversations topics attachments training
+          if ! git diff --cached --quiet; then
+            git commit -m 'Initialize private memory without personal example data'
+            git push origin "HEAD:$MEMORY_BRANCH"
+          fi
+      - name: Check empty or existing event protocol
+        run: python memory_bridge.py --root . validate

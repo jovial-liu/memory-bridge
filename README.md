@@ -5,7 +5,7 @@
 [![Tests](https://github.com/jovial-liu/memory-bridge/actions/workflows/tests.yml/badge.svg)](https://github.com/jovial-liu/memory-bridge/actions/workflows/tests.yml)
 [English](README.md) · [简体中文](README.zh-CN.md) · [MIT](LICENSE)
 
-Memory Bridge is a GitHub-backed memory protocol and local retrieval toolkit for AI assistants. Keep your actual conversations and memories in a **separate private repository**. This public project contains tools, documentation, and fictional examples.
+Memory Bridge is a GitHub-native memory protocol and cloud retrieval toolkit for AI assistants. Keep your actual conversations and memories in a **separate private repository**. This public project contains tools, documentation, and fictional examples.
 
 Once an assistant knows your private repository and has the necessary GitHub access, ask:
 
@@ -15,20 +15,28 @@ Once an assistant knows your private repository and has the necessary GitHub acc
 
 > Don't use historical memory for this conversation.
 
-No shared cloud memory account is required. A GitHub integration still needs to support the requested operation: a read-only connector cannot write, and a file-only connector cannot run the local semantic retriever.
+No shared cloud memory account is required. A GitHub integration still needs to support the requested operation: a read-only connector cannot write, and a connector must be able to submit request files to use cloud retrieval.
+
+## Create your private memory — no laptop setup
+
+[**Create a private memory repository**](https://github.com/jovial-liu/memory-bridge/generate) → choose **Private** → open **Actions → Initialize Private Memory → Run workflow**. Connect your AI app to your new repository and ask it to read `AI_MEMORY.md`.
+
+The template includes the complete runtime, cloud workflows, blank memory structure, protocol, and tests. No developer token or external database is required for Actions itself. Your AI connector needs separately authorized repository access. Existing personal data is never overwritten by initialization. Public copies cannot run memory processing.
+
+[Step-by-step setup and first request](docs/QUICKSTART.md) · [Agent memory architecture](docs/ARCHITECTURE.md)
 
 ## What works today
 
 | Capability | Implementation |
 | --- | --- |
-| Semantic retrieval | Local multilingual E5, quantized ONNX, normalized embeddings |
+| Semantic retrieval | GitHub-hosted multilingual E5, quantized ONNX, normalized embeddings |
 | Hybrid retrieval | SQLite FTS5/BM25 + reciprocal rank fusion (RRF) |
 | Scoped recall | Project, platform, account, topic, and memory-type filters |
 | Traceable context | Source path, message position, SHA-256, role, time, and coverage |
 | Memory lifecycle | Validity windows, explicit corrections, and logical forgetting |
 | Conflict reporting | Disagreements on explicit subject/predicate/value claims; no automatic winner |
 | Concurrent writes | One event per unique file; idempotent retries |
-| Rebuildable indexes | Local SQLite cache; source-change invalidation and reusable embedding cache |
+| Rebuildable indexes | GitHub Actions SQLite cache; source-change invalidation and reusable embedding cache |
 | Relationship memory | Explicit source-backed graph edges and event links |
 | Working memory | Scoped task checkpoints and resume |
 | Reflection | Candidate-only evidence consolidation drafts |

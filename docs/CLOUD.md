@@ -4,6 +4,8 @@ The entire production workflow can run on GitHub. Durable memory and results liv
 
 ## Setup
 
+For a new deployment, use the [private template quick start](QUICKSTART.md). It includes the complete runtime and initialization workflow. The separate-archive installation below is optional.
+
 Copy [memory-cloud.yml](../templates/memory-cloud.yml) to `.github/workflows/memory-cloud.yml` in the private memory repository. The template defaults to the upstream toolkit on main; a production deployment may pin the toolkit ref to a reviewed commit.
 
 Create `AI_MEMORY.md` from the entry template. Grant your AI app access to the private repository and file creation permissions if it will submit requests. Workflow execution uses the repository's GITHUB_TOKEN to commit private results.
@@ -35,6 +37,28 @@ All requests have id, optionally created_at, and an operation. recall/sync addit
 write/sync/forget carry an event with the protocol fields; the cloud assigns a stable ID derived from the request ID, and records time if omitted. A retry reuses the same event. checkpoint state contains objective and optional string lists done/pending/next_steps. Checkpoints are reported historical state, not proof that an action completed.
 
 The cloud batches pending requests, applies authorized writes, then builds retrieval data. Scoped queries encode the union of their scopes and disclose vector_coverage=scoped. An unscoped semantic request encodes the full eligible corpus. Content-addressed embedding caches reuse earlier vectors. File-only graph/working/reflect operations do not require a language model.
+
+### Confirmed write example (fictional)
+
+Use a fresh request ID and replace the fictional text and source with the user's actual explicit statement. Do not import this example as personal information.
+
+```json
+{
+  "id": "11111111111111111111111111111111",
+  "operation": "write",
+  "event": {
+    "kind": "preference",
+    "status": "confirmed",
+    "text": "For the demo project, give concise answers with source links.",
+    "scope": {"project": "demo", "platform": "example-app", "account": "fictional-user"},
+    "source": {"reference": "fictional-message-1", "excerpt": "Please give concise answers with source links for this demo."},
+    "evidence_role": "user",
+    "supersedes": []
+  }
+}
+```
+
+For a combined request, change operation to `sync`, add `query`, and optionally `project` and `mode` at the request's top level. Writes still require direct user evidence to be confirmed.
 
 ## Storage and limits
 

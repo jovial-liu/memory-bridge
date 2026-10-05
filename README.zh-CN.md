@@ -15,3 +15,9 @@
 详见 [云端部署与请求协议](docs/CLOUD.md)。工作流是异步的，第一次建立索引需要时间。仅有读取权限的插件不能提交请求；图谱来自显式证据，候选整理不会自动成为事实。遗忘标记不抹除 Git 历史或原始对话。
 
 公开文档英文优先，示例虚构。私人内容不放在公开项目。
+
+## 无需电脑安装的模板部署
+
+[创建自己的记忆仓库](https://github.com/jovial-liu/memory-bridge/generate)，选择 **Private（私有）**。进入 **Actions → Initialize Private Memory → Run workflow**，初始化后让有读写权限的 AI 插件读取 `AI_MEMORY.md`。代码、初始化、检索、写入都在 GitHub；不会导入作者的个人记忆。
+
+[部署与第一次请求（英文）](docs/QUICKSTART.md) · [架构与实际能力（英文）](docs/ARCHITECTURE.md)

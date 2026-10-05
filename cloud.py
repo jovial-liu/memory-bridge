@@ -139,6 +139,9 @@ def publish(root):
     root = Path(root)
     def git(*args):
         return subprocess.run(['git','-C',str(root),*args],check=True,capture_output=True,text=True)
+    branch = os.environ.get('MEMORY_BRANCH', 'main')
+    if not re.fullmatch(r'[A-Za-z0-9_./-]+', branch) or branch.startswith('-') or '..' in branch:
+        raise ValueError('Invalid destination branch')
     if not (root/'memory/results').exists(): return
     git('config','user.name','github-actions[bot]')
     git('config','user.email','41898282+github-actions[bot]@users.noreply.github.com')
@@ -148,10 +151,10 @@ def publish(root):
     git('commit','-m','Save cloud memory retrieval results')
     for attempt in range(3):
         try:
-            git('push','origin','HEAD:main');return
+            git('push','origin','HEAD:'+branch);return
         except subprocess.CalledProcessError:
-            git('fetch','origin','main')
-            try: git('rebase','origin/main')
+            git('fetch','origin',branch)
+            try: git('rebase','origin/'+branch)
             except subprocess.CalledProcessError:
                 git('rebase','--abort')
                 raise ValueError('Concurrent content conflict; results not pushed')

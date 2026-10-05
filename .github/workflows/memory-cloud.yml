@@ -1,0 +1,49 @@
+name: Memory Cloud
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'memory/requests/**'
+      - '.github/workflows/memory-cloud.yml'
+permissions:
+  contents: write
+concurrency:
+  group: memory-cloud
+  cancel-in-progress: false
+jobs:
+  memory:
+    if: github.event.repository.private == true && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: memory
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Find pending requests
+        id: pending
+        run: python memory/cloud.py --root memory pending
+      - name: Install semantic runtime
+        if: steps.pending.outputs.pending == 'true'
+        run: pip install -r memory/requirements-vector.txt
+      - name: Restore model and vector cache
+        if: steps.pending.outputs.pending == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/memory-runtime
+          key: memory-cloud-v2-${{ runner.os }}-${{ hashFiles('memory/requirements-vector.txt', 'memory/semantic.py', 'memory/rag.py', 'memory/embeddings.py') }}-${{ github.run_id }}
+          restore-keys: |
+            memory-cloud-v2-${{ runner.os }}-${{ hashFiles('memory/requirements-vector.txt', 'memory/semantic.py', 'memory/rag.py', 'memory/embeddings.py') }}-
+      - name: Run private RAG on GitHub
+        if: steps.pending.outputs.pending == 'true'
+        env:
+          MEMORY_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python memory/cloud.py --root memory run --db "$RUNNER_TEMP/memory-runtime/index.sqlite3" --model-dir "$RUNNER_TEMP/memory-runtime/model"
+      - name: Commit private results
+        if: steps.pending.outputs.pending == 'true'
+        env:
+          MEMORY_BRANCH: ${{ github.event.repository.default_branch }}
+        run: python memory/cloud.py --root memory publish
