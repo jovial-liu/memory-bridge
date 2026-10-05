@@ -24,14 +24,21 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: jovial-liu/memory-bridge
-          ref: 541bcb3ae81b9f7aaf070b65bd98345639172d32
+          ref: main
           path: toolkit
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      - uses: actions/setup-python@a26af69be951213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
       - name: Find pending requests
         id: pending
         run: python toolkit/cloud.py --root memory pending
+      - name: Mark memory cloud running
+        if: steps.pending.outputs.pending == 'true'
+        env:
+          MEMORY_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python toolkit/cloud.py --root memory status --phase running
+          python toolkit/cloud.py --root memory publish-status
       - name: Install semantic runtime
         if: steps.pending.outputs.semantic == 'true'
         run: pip install -r toolkit/requirements-vector.txt
@@ -40,14 +47,25 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: ${{ runner.temp }}/memory-runtime
-          key: memory-cloud-v3-${{ runner.os }}-${{ hashFiles('toolkit/requirements-vector.txt', 'toolkit/semantic.py', 'toolkit/rag.py', 'toolkit/embeddings.py', 'toolkit/privacy.py') }}-${{ github.run_id }}
+          key: memory-cloud-v4-${{ runner.os }}-${{ hashFiles('toolkit/requirements-vector.txt', 'toolkit/semantic.py', 'toolkit/rag.py', 'toolkit/embeddings.py', 'toolkit/privacy.py') }}
           restore-keys: |
-            memory-cloud-v3-${{ runner.os }}-${{ hashFiles('toolkit/requirements-vector.txt', 'toolkit/semantic.py', 'toolkit/rag.py', 'toolkit/embeddings.py', 'toolkit/privacy.py') }}-
+            memory-cloud-v4-${{ runner.os }}-
       - name: Run private RAG on GitHub
         if: steps.pending.outputs.pending == 'true'
         env:
           MEMORY_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: python toolkit/cloud.py --root memory run --db "$RUNNER_TEMP/memory-runtime/index.sqlite3" --model-dir "$RUNNER_TEMP/memory-runtime/model"
-      - name: Commit private results
-        if: steps.pending.outputs.pending == 'true'
-        run: python toolkit/cloud.py --root memory publish
+      - name: Publish successful memory results
+        if: steps.pending.outputs.pending == 'true' && success()
+        env:
+          MEMORY_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python toolkit/cloud.py --root memory status --phase completed
+          python toolkit/cloud.py --root memory publish
+      - name: Publish failed memory status
+        if: steps.pending.outputs.pending == 'true' && failure()
+        env:
+          MEMORY_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python toolkit/cloud.py --root memory status --phase failed
+          python toolkit/cloud.py --root memory publish-status
