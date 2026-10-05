@@ -16,7 +16,7 @@ A direct user request to remember or save information authorizes that write. Do 
 1. Extract the smallest complete fact, preference, decision, or project state from the current conversation. Pasted material does not automatically describe the user.
 2. Check existing events in the same project. Use supersedes for a verified correction; preserve unresolved alternatives as candidates.
 3. Create a random 32-character hexadecimal ID and timezone-aware ISO 8601 created_at. Path: memory/events/YYYY-MM/<id>.json. A retry uses the same ID.
-4. Create one new event file. Do not rewrite a shared summary or index for every event.
+4. For one fact, create one event. For several facts confirmed in the same interaction, prefer one cloud request with an `events` array so validation and execution are batched. Do not rewrite a shared summary or index for every event.
 5. Return a file path and commit link only after a successful submission. On an API timeout, read the same path: identical content means success; different content is a conflict. Never force-overwrite concurrent edits.
 6. Consolidate summaries only when requested, using the latest sources. Keep source citations and the consolidation date.
 
@@ -36,6 +36,6 @@ A direct user request to remember or save information authorizes that write. Do 
 
 ## Optional lifecycle fields
 
-memory_type (semantic / episodic / procedural), valid_from, expires_at, importance (0..1), claim (subject/predicate/value), and forgets are described in [LIFECYCLE.md](LIFECYCLE.md). importance is stored metadata, not an automatic ranking boost. Contradiction detection uses explicit claims, not guesses from prose.
+memory_type (semantic / episodic / procedural), stability (stable / evolving / temporary), valid_from, expires_at, importance (0..1), claim (subject/predicate/value), and forgets are described in [LIFECYCLE.md](LIFECYCLE.md). importance is stored metadata, not an automatic ranking boost. Contradiction detection uses explicit claims, not guesses from prose.
 
 Candidate information does not become a fact because it was stored. Check dynamic states again before using them. Never store authentication secrets.
