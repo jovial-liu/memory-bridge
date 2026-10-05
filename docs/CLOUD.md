@@ -1,46 +1,37 @@
 # GitHub-native memory execution
 
-The entire production workflow can run on GitHub. Durable memory and results live in a private repository. Model files and derived indexes live in that repository's Actions cache. GitHub-hosted runners execute the code; the user's laptop does not need a model or retrieval server.
+Durable memory and receipts live in a separate private GitHub repository. GitHub-hosted runners process requests; model files and disposable indexes use that private repository's Actions cache. No laptop inference server is required. This is batch execution, not an always-on API or guaranteed real-time response.
 
 ## Setup
 
-For a new deployment, use the [private template quick start](QUICKSTART.md). It includes the complete runtime and initialization workflow. The separate-archive installation below is optional.
+Use the [private template quick start](QUICKSTART.md), or install [the external-toolkit workflow](../templates/memory-cloud.yml) in the private archive. Pin a reviewed, tested toolkit commit. A moving `main` ref is not a production version pin. Grant the calling AI app the necessary repository access. Documentation does not grant read/write permissions.
 
-Copy [memory-cloud.yml](../templates/memory-cloud.yml) to `.github/workflows/memory-cloud.yml` in the private memory repository. The template defaults to the upstream toolkit on main; a production deployment may pin the toolkit ref to a reviewed commit.
+The workflow uses the private repository's GITHUB_TOKEN to publish results. It must refuse execution in public repositories. Never copy personal history into the public toolkit.
 
-Create `AI_MEMORY.md` from the entry template. Grant your AI app access to the private repository and file creation permissions if it will submit requests. Workflow execution uses the repository's GITHUB_TOKEN to commit private results.
+## Read and write
 
-## One-prompt read/write
+> Read only relevant memory first; save new information I explicitly confirm with its source.
 
-> Use my GitHub memory: read relevant context first, then save the new information I explicitly confirm, with sources and record links.
+A connector creates `memory/requests/<32-character hexadecimal ID>.json`. GitHub Actions processes it, and the connector reads `memory/results/<same ID>.json`. A request file means submitted, NOT applied. A read-only connector can inspect existing sources but cannot submit cloud requests.
 
-The connector creates `memory/requests/<32-character hex ID>.json`, waits for the private Actions job, and reads `memory/results/<same ID>.json`. The job is triggered by a request-file push or manually via workflow_dispatch. First-run model download/indexing may take time; this is asynchronous execution, not an always-on API.
+Requests contain `id`, optional timezone-aware `created_at`, and `operation`. A new task uses a new ID. Do not modify processed requests. After a timeout, read back the original path and check the receipt rather than blindly creating another write.
 
-A read-only connector can inspect stored memory/results but cannot submit a new request. A connector must actually support creating repository files for this workflow; documentation does not grant permissions.
-
-## Operations
-
-| operation | Payload / result |
+| Operation | Input and effect |
 | --- | --- |
-| recall | query + scope; returns cited context |
-| write | event or events[]; validates and saves one or up to 100 memory events atomically |
-| sync | event or events[] + query; saves and retrieves in one request |
-| forget | user-confirmed forget event; suppresses event recall |
-| conflicts | returns unresolved structured claim disagreements |
-| graph | explicit project, optional entity/hops; sourced relation graph |
-| reflect | explicit project; candidate consolidation, optional save=true |
-| checkpoint | project + checkpoint(task_id/state/source); records working state |
-| resume | project + task_id; returns last checkpoint for that task |
+| recall | query and optional scope; returns cited context |
+| write | event or events[]; validates and applies 1..100 events |
+| sync | event/events[] plus query; writes then retrieves |
+| forget | confirmed user forget event; logical suppression only |
+| conflicts | unresolved structured claim disagreements |
+| graph | explicit project, optional entity/hops; source-backed relations |
+| reflect | explicit project; candidate evidence consolidation, optional save=true |
+| checkpoint | project plus task_id/state/source in checkpoint payload |
+| resume | project plus task_id; last reported task checkpoint |
+| evaluate | cases_path under memory/evaluation; assertion report |
 
-All requests have id, optionally created_at, and an operation. recall/sync additionally require query. mode is keyword, semantic or hybrid; scope fields are project/platform/account/topic/memory_type. See [request example](../examples/request.json).
+`recall` and `sync` require a query of 1..2000 characters. Modes are keyword, semantic, or hybrid. Scope filters are project/platform/account/topic/memory_type; limit is 1..50, context budget is 300..50000 characters (not tokens). Scope labels must match actual indexed metadata; nearest-neighbor results are not guaranteed relevant.
 
-write/sync/forget carry either `event` or an `events` array with the protocol fields. A batch contains 1..100 events. The cloud validates the complete batch before writing, assigns stable event IDs derived from the request ID and position, and records time if omitted. A retry reuses the same IDs. checkpoint state contains objective and optional string lists done/pending/next_steps. Checkpoints are reported historical state, not proof that an action completed.
-
-The cloud batches pending requests, applies authorized writes, then builds retrieval data. Scoped queries encode the union of their scopes and disclose vector_coverage=scoped. An unscoped semantic request encodes the full eligible corpus. Content-addressed embedding caches reuse earlier vectors. File-only graph/working/reflect operations do not require a language model.
-
-### Confirmed write example (fictional)
-
-Use a fresh request ID and replace the fictional text and source with the user's actual explicit statement. Do not import this example as personal information.
+Events require kind, status, text, scope(project/platform/account), source(reference/excerpt), evidence_role, and supersedes. The worker assigns stable event IDs and recording time. Use the canonical kinds and roles in [PROTOCOL.md](PROTOCOL.md); legacy alias normalization is compatibility support, not a truth verifier. Only direct user evidence supports confirmed status.
 
 ```json
 {
@@ -49,31 +40,35 @@ Use a fresh request ID and replace the fictional text and source with the user's
   "event": {
     "kind": "preference",
     "status": "confirmed",
-    "text": "For the demo project, give concise answers with source links.",
+    "text": "For the fictional demo project, cite sources.",
     "scope": {"project": "demo", "platform": "example-app", "account": "fictional-user"},
-    "source": {"reference": "fictional-message-1", "excerpt": "Please give concise answers with source links for this demo."},
+    "source": {"reference": "fictional-message-1", "excerpt": "Please cite sources for this demo."},
     "evidence_role": "user",
     "supersedes": []
   }
 }
 ```
 
-For a combined request, change operation to `sync`, add `query`, and optionally `project` and `mode` at the request's top level. To save several confirmed memories from one conversation turn, replace `event` with `events: [ ... ]` instead of creating one request/commit per fact. Writes still require direct user evidence to be confirmed.
+This example is fictional. Replace it with real reviewed evidence; never ingest the example as personal data. For several memories, replace event with events[]. For sync, also add query and optional retrieval scope.
 
-## Current-state materialization
+## Batch reliability
 
-Recent/evolving state should use lifecycle metadata rather than being mixed with permanent profile facts. Events may set `stability` to `stable`, `evolving`, or `temporary`, together with `valid_from`, `expires_at`, and `importance`. `cloud.py status` materializes a compact `memory/NOW.md` view plus `memory/status.json` so agents can read current priorities and queue health without scanning the full history.
+One request preflights every event and reference against an isolated event-tree copy before touching live files. Ordinary I/O exceptions roll back newly created event files. The published Git commit is atomic; local multi-file writes are NOT crash-atomic database transactions. Stable IDs support retries. Separate requests are isolated so a malformed request does not block valid siblings.
 
-## Storage and limits
+Exact deduplication includes source evidence and metadata. Corrections, forgetting, relationships, episodic events, and repeated project-state observations are not removed by that optimization. New provenance must not disappear just because the sentence matches.
 
-- Private repository: conversations, events, requests, results, working checkpoints, `memory/status.json`, and generated `memory/NOW.md`.
-- Private Actions cache: model and SQLite/embedding derivatives; cache eviction is possible, so these are rebuildable.
-- Public repository: toolkit, protocol, tests, and fictional examples only.
+Failures get explicit receipts. Malformed inputs are quarantined under memory/failures without echoing raw error content. A sync write can succeed before its retrieval fails: the failed receipt then retains write and write_applied=true. Review and correct failures using a fresh ID, not by modifying history.
 
-`memory/status.json` exposes request/result counts and workflow phase; `memory/NOW.md` is a compact generated current-state view. The workflow publishes a running status before heavy retrieval work and a completed/failed status afterward. Results and written events are committed together on successful runs, with fast-forward retries for concurrent branch updates. Logs show request IDs and counts, not retrieved memory excerpts. GitHub Actions uses execution minutes and has runtime/cache limits; it is a batch workflow, not unlimited compute or a permanent inference host.
+## Status and current context
 
-The template runs only when the repository is private. Do not copy personal memory into the public toolkit. Logical forgetting does not erase Git history or old caches.
+`memory/status.json` version 2 separates succeeded, failed_known, integrity_errors and pending. It checks receipt digests and counts assertion-failing evaluations as failures, including legacy results. Historical failures stay visible after a corrected rerun. The file is a snapshot, not worker-liveness telemetry.
 
-References: [workflow events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows), [cache behavior](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching).
+`memory/NOW.md` is a generated view capped at 12 entries and 6,000 characters by default. It links source events, labels known conflicts, and omits expired/invalidated events. Omission is not deletion. `stability`, `valid_from`, `expires_at` and `importance` distinguish temporary state from enduring background. A freshly regenerated file does not freshly confirm its real-world claims.
 
-Source-labelled regression evaluation is available through `evaluate` with `cases_path: memory/evaluation/<name>.json`. Inspect the report pass count; workflow success alone does not mean all cases passed. See [evaluation guidance](docs/EVALUATION.md).
+The CLI exits nonzero when newly processed requests fail. Workflows must finalize and publish receipts even after that failure and must report quarantined input errors. Do not condition publication solely on success(). See [RELIABILITY.md](RELIABILITY.md).
+
+## Retrieval and boundaries
+
+Keyword retrieval and explicit graph/checkpoint operations do not require a language model. Semantic queries use the pinned embedding provider and content-addressed caches; scoped encoding reports limited coverage. Indexes are rebuildable and may be evicted. RAG and memory-management components do not themselves train the answer model.
+
+Logical forgetting does not erase raw conversations, old caches or Git history. Access controls are not end-to-end encryption. See [privacy](PRIVACY.md), [lifecycle](LIFECYCLE.md), and [evaluation guidance](EVALUATION.md). A curated keyword regression score is not a LongMemEval/LoCoMo score or overall memory accuracy.
