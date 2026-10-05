@@ -15,35 +15,46 @@ jobs:
     if: github.event.repository.private == true && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    env:
+      MEMORY_BRANCH: ${{ github.event.repository.default_branch }}
+      MEMORY_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
           path: memory
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
-      - name: Find pending requests
+      - name: Validate and isolate pending requests
         id: pending
         run: python memory/cloud.py --root memory pending
-      - name: Install semantic runtime
+      - name: Install optional semantic runtime
         if: steps.pending.outputs.semantic == 'true'
+        continue-on-error: true
         run: pip install -r memory/requirements-vector.txt
-      - name: Restore model and vector cache
-        if: steps.pending.outputs.pending == 'true'
+      - name: Restore rebuildable semantic cache
+        if: steps.pending.outputs.semantic == 'true'
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: ${{ runner.temp }}/memory-runtime
-          key: memory-cloud-v3-${{ runner.os }}-${{ hashFiles('memory/requirements-vector.txt', 'memory/semantic.py', 'memory/rag.py', 'memory/embeddings.py', 'memory/privacy.py') }}-${{ github.run_id }}
+          key: memory-cloud-v5-${{ runner.os }}-${{ hashFiles('memory/requirements-vector.txt', 'memory/semantic.py', 'memory/rag.py', 'memory/embeddings.py', 'memory/privacy.py') }}-${{ github.run_id }}
           restore-keys: |
-            memory-cloud-v3-${{ runner.os }}-${{ hashFiles('memory/requirements-vector.txt', 'memory/semantic.py', 'memory/rag.py', 'memory/embeddings.py', 'memory/privacy.py') }}-
-      - name: Run private RAG on GitHub
-        if: steps.pending.outputs.pending == 'true'
-        env:
-          MEMORY_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            memory-cloud-v5-${{ runner.os }}-${{ hashFiles('memory/requirements-vector.txt', 'memory/semantic.py', 'memory/rag.py', 'memory/embeddings.py', 'memory/privacy.py') }}-
+      - name: Process isolated requests
+        id: process
+        if: ${{ !cancelled() && steps.pending.outcome == 'success' && steps.pending.outputs.pending == 'true' }}
         run: python memory/cloud.py --root memory run --db "$RUNNER_TEMP/memory-runtime/index.sqlite3" --model-dir "$RUNNER_TEMP/memory-runtime/model"
-      - name: Commit private results
-        if: steps.pending.outputs.pending == 'true'
+      - name: Publish receipts and status even after processing failures
+        if: ${{ always() && !cancelled() && steps.pending.outcome != '' }}
         env:
-          MEMORY_BRANCH: ${{ github.event.repository.default_branch }}
-        run: python memory/cloud.py --root memory publish
+          MEMORY_PHASE: ${{ (steps.pending.outcome == 'failure' || steps.process.outcome == 'failure') && 'failed' || 'completed' }}
+        run: |
+          python memory/cloud.py --root memory status --phase "$MEMORY_PHASE"
+          python memory/cloud.py --root memory publish
+      - name: Report quarantined inputs as a failed run
+        if: ${{ always() && !cancelled() && steps.pending.outputs.rejected == 'true' }}
+        run: |
+          echo 'Invalid requests were isolated; inspect private failure receipts.'
+          exit 2
