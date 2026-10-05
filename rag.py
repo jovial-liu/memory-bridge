@@ -32,6 +32,7 @@ def snapshot(root):
     root = Path(root)
     paths = list((root / 'conversations').glob('*/*.json'))
     paths += list((root / 'memory/events').glob('*/*.json'))
+    paths += list((root / 'memory/documents').glob('*.json'))
     paths += [p for p in (root / 'index.json', root / 'memory/confirmed.json') if p.exists()]
     manifest = []
     for path in sorted(paths):
@@ -65,6 +66,25 @@ def documents(root):
                        timestamp=message.get('timestamp'), kind='conversation',
                        coverage=conv.get('coverage', 'unknown'),
                        role_status=message.get('role_status', 'source-recorded'),
+                       sha256=hashlib.sha256(raw).hexdigest())
+    # File evidence is its own kind; it never becomes a user message or confirmed fact.
+    for path in sorted((root / 'memory/documents').glob('*.json')):
+        raw = path.read_bytes()
+        archive = json.loads(raw)
+        if archive.get('version') != 1 or not isinstance(archive.get('documents'), list):
+            raise ValueError('Invalid document archive')
+        for index, doc in enumerate(archive['documents']):
+            if (not isinstance(doc.get('text'), str) or not doc['text'].strip()
+                    or not isinstance(doc.get('source_path'), str)
+                    or not re.fullmatch(r'[a-f0-9]{64}', doc.get('source_sha256', ''))
+                    or not isinstance(doc.get('coverage'), str)):
+                raise ValueError('Document evidence requires text, source path, hash and coverage')
+            yield dict(text=doc['text'], path=path.relative_to(root).as_posix(),
+                       message_index=index, platform='local-documents', account='local-user',
+                       project=doc.get('project', 'unknown'), topics=[], title=doc.get('title', ''),
+                       role='document', status='historical', timestamp=doc.get('modified'),
+                       kind='document', coverage=doc['coverage'], role_status='document-evidence-not-user-statement',
+                       source_path=doc['source_path'], source_sha256=doc['source_sha256'],
                        sha256=hashlib.sha256(raw).hexdigest())
     # Existing confirmed facts remain usable without migrating their source history.
     confirmed = root / 'memory/confirmed.json'

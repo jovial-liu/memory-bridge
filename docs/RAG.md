@@ -41,3 +41,9 @@ Results retain source file, message index, character offset, checksum, role, rol
 Attachments are not embedded or OCR'd by this version. Historical conversations remain evidence, not current facts. Inferred UI roles and partial exports retain their labels.
 
 References: [SQLite FTS5](https://www.sqlite.org/fts5.html), [original multilingual E5 model card](https://huggingface.co/intfloat/multilingual-e5-small), [ONNX conversion](https://huggingface.co/Xenova/multilingual-e5-small).
+
+## Local document evidence imported into GitHub
+
+`memory/documents/*.json` archives have `version: 1` and a `documents` array. Each entry requires `text`, `source_path`, `source_sha256` (64 hexadecimal characters), and explicit `coverage`; optional fields include `title`, `modified`, and an explicitly assigned `project`. Retrieval labels these entries `kind=document`, `role=document`, `status=historical`. A document mentioning a person is evidence about that document, not confirmation of the repository owner's identity. Original source hashes identify the imported version; the cloud can verify the stored archive hash, but cannot verify a local original it cannot access.
+
+Document extraction and filesystem inventory are ingestion steps. After upload, recall runs on GitHub, with no local model execution. Full source coverage must never be claimed for a page or character excerpt.

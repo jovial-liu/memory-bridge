@@ -56,5 +56,27 @@ class RetrievalTests(unittest.TestCase):
         self.assertLessEqual(len(rag.bundle(found, 300)), 300)
         with self.assertRaises(ValueError): rag.retrieve(self.root.parent, self.db, '论文')
 
+    def test_document_evidence_is_not_user_identity(self):
+        folder = self.root/'memory/documents'; folder.mkdir(parents=True)
+        source = folder/'files.json'
+        doc = dict(text='操作系统实验报告 姓名 示例学生', source_path='/example/report.docx',
+                   source_sha256='a'*64, coverage='first 100 characters', project='coursework')
+        source.write_text(json.dumps(dict(version=1, documents=[doc])))
+        rag.build(self.root, self.db)
+        found = rag.retrieve(self.root, self.db, '实验报告', project='coursework')
+        self.assertEqual(found[0]['role'], 'document')
+        self.assertEqual(found[0]['status'], 'historical')
+        self.assertEqual(found[0]['kind'], 'document')
+        self.assertEqual(found[0]['source_sha256'], 'a'*64)
+        self.assertEqual(rag.retrieve(self.root, self.db, '实验报告', project='other'), [])
+        doc['text'] = 'changed source'
+        source.write_text(json.dumps(dict(version=1, documents=[doc])))
+        with self.assertRaises(ValueError): rag.retrieve(self.root, self.db, '实验报告')
+
+    def test_document_requires_provenance(self):
+        folder = self.root/'memory/documents'; folder.mkdir(parents=True)
+        (folder/'bad.json').write_text(json.dumps(dict(version=1, documents=[dict(text='unsourced identity claim')])))
+        with self.assertRaises(ValueError): rag.build(self.root, self.db)
+
 
 if __name__ == '__main__': unittest.main()
