@@ -81,6 +81,7 @@ def resume(root,project,task_id):
         state=json.loads(path.read_text())
         if state.get('project')==project and state.get('task_id')==task_id:
             states.append(state)
-    states.sort(key=lambda x:(x['created_at'],x['id']))
+    # ISO strings with different UTC offsets are not lexicographically chronological.
+    states.sort(key=lambda x:(memory_bridge.instant(x['created_at']),x['id']))
     return dict(project=project,task_id=task_id,checkpoint=states[-1] if states else None,
                 interpretation='Historical checkpoint, not proof that tasks are currently running')

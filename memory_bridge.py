@@ -18,6 +18,8 @@ SECRET = re.compile(r'(?:gh[pousr]_[A-Za-z0-9]{30,}|sk-(?:proj-)?[A-Za-z0-9_-]{2
 
 
 def instant(value):
+    if not isinstance(value, str):
+        raise ValueError('Timestamps must be timezone-aware strings')
     when = dt.datetime.fromisoformat(value.replace('Z', '+00:00'))
     if when.tzinfo is None:
         raise ValueError('Timestamps require a timezone')
@@ -42,10 +44,16 @@ def forgotten_ids(events):
 
 
 def inactive_ids(events, at=None):
+    """Only an effective, user-confirmed replacement changes current truth.
+
+    A candidate may propose supersedes links, but cannot suppress confirmed evidence.
+    Expiration of an accepted replacement does not resurrect its predecessor.
+    """
     at = at or dt.datetime.now(dt.timezone.utc)
     hidden = forgotten_ids(events)
     hidden |= {ident for e in events for ident in e['supersedes']
-               if not e.get('valid_from') or instant(e['valid_from']) <= at}
+               if e['status'] == 'confirmed' and e['evidence_role'] == 'user'
+               and instant(e.get('valid_from') or e['created_at']) <= at}
     return hidden
 
 
@@ -205,7 +213,7 @@ def search(root, query='', project=None, platform=None, account=None, history=Fa
         if query.casefold() not in (e['text'] + '\n' + e['source']['excerpt']).casefold():
             continue
         found.append(e)
-    return sorted(found, key=lambda e: (e['created_at'], e['id']))
+    return sorted(found, key=lambda e: (instant(e['created_at']), e['id']))
 
 
 def main():

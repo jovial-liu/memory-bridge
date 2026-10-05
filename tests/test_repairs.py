@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -63,7 +64,8 @@ class RepairTests(unittest.TestCase):
             mocked.assert_not_called()
     def test_bridge_submit_and_wait(self):
         item={'id':'a'*32,'operation':'recall','query':'pear','mode':'keyword'}
-        result={'execution':'github-actions','results':[]}
+        raw=(json.dumps(item,ensure_ascii=False,indent=2)+'\n').encode()
+        result={'id':item['id'],'operation':'recall','status':'succeeded','request_sha256':hashlib.sha256(raw).hexdigest(),'execution':'github-actions','results':[],'filters':{}}
         with patch('bridge.api',side_effect=[{'private':True},{'commit':{}},{'content':base64.b64encode(json.dumps(result).encode()).decode()}]) as mocked:
             self.assertEqual(bridge.submit('owner/private',item,wait_seconds=1),result);self.assertEqual(mocked.call_count,3)
     def test_source_labelled_evaluation(self):
