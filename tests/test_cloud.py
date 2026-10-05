@@ -28,6 +28,15 @@ class CloudTests(unittest.TestCase):
         self.assertEqual(result['execution'],'github-actions')
         self.assertIn('write',result);self.assertTrue(result['results'])
         self.assertEqual(cloud.run(self.root,self.db,self.model),0)
+    def test_batch_write(self):
+        e1=event();e1.pop('id');e1.pop('created_at')
+        e2=event();e2.pop('id');e2.pop('created_at');e2['text']='Second confirmed fact';e2['source']['excerpt']='Second confirmed fact'
+        self.request(operation='write',events=[e1,e2])
+        self.assertEqual(cloud.run(self.root,self.db,self.model),1)
+        result=json.loads((self.root/'memory/results'/('1'*32+'.json')).read_text())
+        self.assertEqual(result['result']['count'],2)
+        self.assertEqual(len(list((self.root/'memory/events').glob('*/*.json'))),2)
+
     def test_modified_request_rejected(self):
         self.request(operation='recall',query='answers',mode='keyword')
         cloud.run(self.root,self.db,self.model)
