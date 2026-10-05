@@ -104,16 +104,26 @@ def pending(root):
 
 
 def write_event(root,item,event=None,index=0,total=1,kind=None):
-    event=dict(event if event is not None else item.get('event',{}))
+    event=normalize_event_payload(event if event is not None else item.get('event',{}))
+    if kind:event['kind']=kind
+    # Idempotent semantic dedup: avoid creating another active event for the exact same memory.
+    existing=memory_bridge.load(root)
+    inactive=memory_bridge.inactive_ids(existing)
+    for prior in existing:
+        if prior['id'] in inactive or prior['kind']=='forget' or not memory_bridge.in_time(prior):
+            continue
+        comparable=('kind','status','text','scope','evidence_role','memory_type','stability','valid_from','expires_at','importance','claim')
+        if all(prior.get(key) == event.get(key) for key in comparable):
+            path=Path(root)/'memory/events'/prior['created_at'][:7]/(prior['id']+'.json')
+            return dict(event_id=prior['id'],path=path.relative_to(root).as_posix(),deduplicated=True)
     suffix=':event' if total == 1 else ':event:'+str(index)
     ident=hashlib.sha256((item['id']+suffix).encode()).hexdigest()[:32]
     old=next((Path(root)/'memory/events').glob('*/'+ident+'.json'),None)
     timestamp=json.loads(old.read_text())['created_at'] if old else item.get('created_at',dt.datetime.now(dt.timezone.utc).isoformat())
     event.update(version=1,id=ident,created_at=timestamp)
     event.setdefault('supersedes',[])
-    if kind:event['kind']=kind
     path=memory_bridge.save(root,event)
-    return dict(event_id=ident,path=path.relative_to(root).as_posix())
+    return dict(event_id=ident,path=path.relative_to(root).as_posix(),deduplicated=False)
 
 
 def write_events(root,item,kind=None):
@@ -212,7 +222,8 @@ def build_now(root,limit=50):
         if event['id'] in inactive or event['status'] != 'confirmed' or event['kind'] == 'forget' or not memory_bridge.in_time(event):
             continue
         stability=event.get('stability','stable')
-        if not (stability in {'temporary','evolving'} or event['kind'] in {'project_state','decision'} or event.get('expires_at')):
+        # NOW is working/current state, not a second copy of long-term goals.
+        if not (stability in {'temporary','evolving'} or event['kind']=='project_state' or event.get('expires_at')):
             continue
         rows.append(event)
     rows.sort(key=lambda event:(float(event.get('importance',0)),event['created_at'],event['id']),reverse=True)
