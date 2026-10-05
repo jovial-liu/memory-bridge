@@ -33,14 +33,14 @@ The template includes the complete runtime, cloud workflows, blank memory struct
 | Hybrid retrieval | SQLite FTS5/BM25 + reciprocal rank fusion (RRF) |
 | Scoped recall | Project, platform, account, topic, and memory-type filters |
 | Traceable context | Source path, distinct passage offsets/text lines, SHA-256, sender, participants, role, time precision, and coverage |
-| Memory lifecycle | Validity windows, explicit corrections, and logical forgetting |
+| Memory lifecycle | Stable/evolving/temporary state, validity windows, explicit corrections, exact-write deduplication, and logical forgetting |
 | Conflict reporting | Disagreements on explicit subject/predicate/value claims; no automatic winner |
-| Concurrent writes | One event per unique file; idempotent retries |
+| Batched/concurrent writes | One request can atomically carry 1..100 events; exact duplicates are reused; retries are idempotent |
 | Rebuildable indexes | GitHub Actions SQLite cache; source-change invalidation and reusable embedding cache |
 | Relationship memory | Explicit source-backed graph edges and event links |
-| Working memory | Scoped task checkpoints and resume |
+| Working memory | Scoped task checkpoints/resume plus generated NOW.md current-state view |
 | Reflection | Candidate-only evidence consolidation drafts |
-| User control | Per-task scope and character-budgeted context bundles |
+| User control | Per-task scope, character-budgeted context bundles, and status.json request observability |
 | Privacy gates | Before-upload client guard, staging sanitizer, cloud/index rejection, optional encrypted-original vault |
 | Readable imports | Text, JSON/JSONL, CSV, official ChatGPT exports; unknown speakers and dates stay unknown |
 | Regression evaluation | Labelled source, multiple-passage, scope, role and freshness checks; no external benchmark score claim |
