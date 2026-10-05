@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build a disposable SQLite retrieval index and citation-bearing context bundles."""
 import argparse
+import bisect
 import hashlib
 import json
 from pathlib import Path
@@ -10,6 +11,7 @@ import tempfile
 import os
 
 import memory_bridge
+import privacy
 
 
 def tokens(text):
@@ -57,6 +59,7 @@ def documents(root):
             text = message.get('text', '')
             if not isinstance(text, str) or not text.strip():
                 continue
+            privacy.require_clean(text)
             yield dict(text=text, path=relative, message_index=index,
                        platform=conv.get('source', path.parent.name),
                        account=conv.get('account_label', meta.get('account_label', 'unknown')),
@@ -66,6 +69,10 @@ def documents(root):
                        timestamp=message.get('timestamp'), kind='conversation',
                        coverage=conv.get('coverage', 'unknown'),
                        role_status=message.get('role_status', 'source-recorded'),
+                       sender=message.get('sender', 'unknown'),
+                       participants=conv.get('participants', []),
+                       date_label=message.get('date_label'),
+                       timestamp_precision=message.get('timestamp_precision', 'exact' if message.get('timestamp') else ('date-label' if message.get('date_label') else 'unknown')),
                        sha256=hashlib.sha256(raw).hexdigest())
     # File evidence is its own kind; it never becomes a user message or confirmed fact.
     for path in sorted((root / 'memory/documents').glob('*.json')):
@@ -79,6 +86,7 @@ def documents(root):
                     or not re.fullmatch(r'[a-f0-9]{64}', doc.get('source_sha256', ''))
                     or not isinstance(doc.get('coverage'), str)):
                 raise ValueError('Document evidence requires text, source path, hash and coverage')
+            privacy.require_clean(doc['text'])
             yield dict(text=doc['text'], path=path.relative_to(root).as_posix(),
                        message_index=index, platform='local-documents', account='local-user',
                        project=doc.get('project', 'unknown'), topics=[], title=doc.get('title', ''),
@@ -93,6 +101,7 @@ def documents(root):
         for index, fact in enumerate(json.loads(raw)):
             if not isinstance(fact.get('text'), str):
                 continue
+            privacy.require_clean(fact['text'])
             yield dict(text=fact['text'], path='memory/confirmed.json', message_index=index,
                        platform='memory', account='unknown', project='global', topics=[],
                        title=fact.get('id', ''), role=fact.get('evidence_role', 'observation'),
@@ -141,10 +150,14 @@ def build(root, db):
         c.execute('create virtual table search using fts5(body)')
         count = 0
         for doc in documents(root):
+            newlines = [i for i, ch in enumerate(doc['text']) if ch == '\n']
             for offset, text in chunks(doc['text']):
                 if not tokens(text):
                     continue
-                meta = {**doc, 'text': text, 'char_offset': offset}
+                meta = {**doc, 'text': text, 'char_offset': offset,
+                        'char_end': offset + len(text),
+                        'text_line_start': bisect.bisect_left(newlines, offset) + 1,
+                        'text_line_end': bisect.bisect_left(newlines, max(offset, offset + len(text) - 1)) + 1}
                 count += 1
                 c.execute('insert into chunks values (?,?,?,?,?)',
                           (count, doc['project'], doc['platform'], doc['account'],
@@ -182,6 +195,10 @@ def annotate_conflicts(root, results):
     return results
 
 
+def chunk_key(item):
+    # Different passages in a long archival batch are distinct evidence.
+    return (item['path'], item['message_index'], item.get('char_offset', 0))
+
 def retrieve(root, db, query, limit=8, project=None, platform=None, account=None, topic=None,
              memory_type=None):
     if not 1 <= limit <= 50:
@@ -218,7 +235,7 @@ def retrieve(root, db, query, limit=8, project=None, platform=None, account=None
                 continue
             if topic is not None and topic not in meta['topics']:
                 continue
-            key = (meta['path'], meta['message_index'])
+            key = chunk_key(meta)
             if key in seen:
                 continue
             path = (Path(root) / meta['path']).resolve()
@@ -250,7 +267,9 @@ def bundle(results, budget=12000):
         header = (f"[{item['citation']}] {item['path']} message={item['message_index']} "
                   f"offset={item['char_offset']} role={item['role']} status={item['status']} "
                   f"project={item['project']} platform={item['platform']} account={item['account']} "
-                  f"time={item['timestamp']} role_status={item['role_status']} "
+                  f"time={item['timestamp']} time_precision={item.get('timestamp_precision', 'unknown')} "
+                  f"sender={item.get('sender', 'unknown')} participants={json.dumps(item.get('participants', []), ensure_ascii=False)} "
+                  f"text_lines={item.get('text_line_start', '?')}-{item.get('text_line_end', '?')} role_status={item['role_status']} "
                   f"coverage={item['coverage']} sha256={item['sha256']}\n")
         if item.get('conflict_event_ids'):
             header += 'UNRESOLVED CONFLICT: ' + ','.join(item['conflict_event_ids']) + '\n'

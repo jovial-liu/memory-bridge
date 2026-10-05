@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import re
 import uuid
+import privacy
 
 STATUSES = {'candidate', 'confirmed', 'historical', 'superseded'}
 KINDS = {'preference', 'fact', 'decision', 'project_state', 'correction', 'forget'}
@@ -129,6 +130,7 @@ def validate(event):
         raise ValueError('supersedes must be a list of event IDs')
     if event['id'] in event['supersedes']:
         raise ValueError('An event cannot supersede itself')
+    privacy.require_clean(event)
     if SECRET.search(json.dumps(event, ensure_ascii=False)):
         raise ValueError('Possible credential detected; remove it before saving')
     return event

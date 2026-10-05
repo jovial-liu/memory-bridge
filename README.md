@@ -32,7 +32,7 @@ The template includes the complete runtime, cloud workflows, blank memory struct
 | Semantic retrieval | GitHub-hosted multilingual E5, quantized ONNX, normalized embeddings |
 | Hybrid retrieval | SQLite FTS5/BM25 + reciprocal rank fusion (RRF) |
 | Scoped recall | Project, platform, account, topic, and memory-type filters |
-| Traceable context | Source path, message position, SHA-256, role, time, and coverage |
+| Traceable context | Source path, distinct passage offsets/text lines, SHA-256, sender, participants, role, time precision, and coverage |
 | Memory lifecycle | Validity windows, explicit corrections, and logical forgetting |
 | Conflict reporting | Disagreements on explicit subject/predicate/value claims; no automatic winner |
 | Concurrent writes | One event per unique file; idempotent retries |
@@ -41,6 +41,10 @@ The template includes the complete runtime, cloud workflows, blank memory struct
 | Working memory | Scoped task checkpoints and resume |
 | Reflection | Candidate-only evidence consolidation drafts |
 | User control | Per-task scope and character-budgeted context bundles |
+| Privacy gates | Before-upload client guard, staging sanitizer, cloud/index rejection, optional encrypted-original vault |
+| Readable imports | Text, JSON/JSONL, CSV, official ChatGPT exports; unknown speakers and dates stay unknown |
+| Regression evaluation | Labelled source, multiple-passage, scope, role and freshness checks; no external benchmark score claim |
+| Connector client | Optional `bridge.py` request submission/waiting; model and RAG run on GitHub |
 
 These are retrieval and memory-management components. The calling AI app generates answers. GitHub Actions provides batch cloud execution. There is no always-on hosted API, automatic cross-account export, autonomous fact extraction, trained reranker, or fine-tuning job.
 
@@ -51,6 +55,8 @@ Use the [GitHub-native workflow](docs/CLOUD.md). Submit a request file from your
 One prompt: “Use my GitHub memory: read relevant context first, then save what I explicitly confirm, with record links.”
 
 [Cloud setup and request operations](docs/CLOUD.md) · [workflow template](templates/memory-cloud.yml)
+
+[One-prompt connector protocol](docs/ONE_PROMPT.md) · [Privacy and encrypted originals](docs/PRIVACY.md) · [Readable imports](docs/IMPORTS.md) · [Evaluation](docs/EVALUATION.md)
 
 ## Optional local/development quick start
 

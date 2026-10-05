@@ -118,7 +118,7 @@ def vector_candidates(root, db, query, provider, limit=50, project=None, platfor
         found, seen = [], set()
         for index in np.argsort(-scores, kind='stable'):
             item = metadata[int(index)]
-            key = (item['path'], item['message_index'])
+            key = rag.chunk_key(item)
             if key in seen: continue
             item.update(semantic_score=float(scores[index]))
             found.append(item); seen.add(key)
@@ -135,12 +135,12 @@ def fuse(lists, constant=60):
     merged = {}
     for channel, items in lists:
         for rank, item in enumerate(items, 1):
-            key = (item['path'], item['message_index'])
+            key = rag.chunk_key(item)
             if key not in merged: merged[key] = {**item, 'rrf_score':0.0, 'retrieval_channels':[]}
             merged[key]['rrf_score'] += 1 / (constant + rank)
             merged[key]['retrieval_channels'].append(channel)
             if 'semantic_score' in item: merged[key]['semantic_score'] = item['semantic_score']
-    return sorted(merged.values(), key=lambda x: (-x['rrf_score'], x['path'], str(x['message_index'])))
+    return sorted(merged.values(), key=lambda x: (-x['rrf_score'], x['path'], str(x['message_index']), x.get('char_offset', 0)))
 
 
 def retrieve(root, db, query, provider, mode='hybrid', limit=8, **filters):

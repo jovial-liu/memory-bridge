@@ -11,13 +11,14 @@ import subprocess
 
 import memory_bridge
 import rag
+import privacy
 
 
 def validate_request(item, ident):
     if not re.fullmatch(r'[a-f0-9]{32}', ident) or item.get('id') != ident:
         raise ValueError('Request ID/path mismatch')
     operation=item.get('operation','recall')
-    if operation not in {'recall','write','sync','forget','graph','reflect','checkpoint','resume','conflicts'}:
+    if operation not in {'recall','write','sync','forget','graph','reflect','checkpoint','resume','conflicts','evaluate'}:
         raise ValueError('Unsupported operation')
     if operation in {'recall','sync'}:
         if not isinstance(item.get('query'),str) or not 1 <= len(item['query'].strip()) <= 2000:
@@ -25,6 +26,8 @@ def validate_request(item, ident):
         if memory_bridge.SECRET.search(item['query']): raise ValueError('Possible credential in query')
     if operation in {'graph','reflect','checkpoint','resume'} and not item.get('project'):
         raise ValueError('Operation requires explicit project')
+    if operation=='evaluate' and (not isinstance(item.get('cases_path'),str) or not re.fullmatch(r'memory/evaluation/[A-Za-z0-9_.-]+\.json',item['cases_path'])):
+        raise ValueError('Evaluation requires a safe memory/evaluation JSON path')
     if item.get('created_at'): memory_bridge.instant(item['created_at'])
     if item.get('mode', 'hybrid') not in {'keyword', 'semantic', 'hybrid'}:
         raise ValueError('Invalid query mode')
@@ -35,6 +38,7 @@ def validate_request(item, ident):
     for key in ('project', 'platform', 'account', 'topic', 'memory_type'):
         if item.get(key) is not None and (not isinstance(item[key], str) or len(item[key]) > 200):
             raise ValueError('Invalid scope field')
+    privacy.require_clean(item)
     return item
 
 
@@ -69,6 +73,12 @@ def run(root, db, model_dir):
     import manager
     root=Path(root).resolve()
     jobs=pending(root)
+    # Fail before writing if any incoming event is invalid; prevent partial batches.
+    for item,_ in jobs:
+        if item.get('operation') in {'write','sync','forget'}:
+            candidate=dict(item.get('event',{}));candidate.update(version=1,id='0'*32,created_at=item.get('created_at',dt.datetime.now(dt.timezone.utc).isoformat()));candidate.setdefault('supersedes',[])
+            if item['operation']=='forget':candidate['kind']='forget'
+            memory_bridge.validate(candidate)
     if not jobs:return 0
     memory_bridge.load(root)
     prepared={}
@@ -118,6 +128,9 @@ def run(root, db, model_dir):
         elif op=='resume':result['result']=manager.resume(root,item['project'],item.get('task_id'))
         elif op=='graph':result['result']=manager.graph(root,item['project'],item.get('entity'),item.get('hops',1))
         elif op=='conflicts':result['result']=memory_bridge.conflicts(memory_bridge.load(root))
+        elif op=='evaluate':
+            from evaluate import evaluate
+            result['result']=evaluate(root,db,json.loads((root/item['cases_path']).read_text()))
         elif op=='reflect':
             result['result']=manager.reflect(root,item['project'])
             if item.get('save'):
@@ -173,6 +186,10 @@ def main():
         count=len(pending(a.root))
         if os.environ.get('GITHUB_OUTPUT'):
             with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('pending='+('true' if count else 'false')+'\n')
+        jobs=pending(a.root)
+        semantic=any(item.get('operation','recall') in {'recall','sync'} and item.get('mode','hybrid')!='keyword' for item,_ in jobs)
+        if os.environ.get('GITHUB_OUTPUT'):
+            with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('semantic='+str(semantic).lower()+'\n')
         print(f'{count} pending memory requests')
     elif a.command=='publish':publish(a.root)
     else:print(f'Completed {run(a.root,a.db,a.model_dir)} requests')

@@ -71,3 +71,5 @@ Results and written events are committed together, with fast-forward retries for
 The template runs only when the repository is private. Do not copy personal memory into the public toolkit. Logical forgetting does not erase Git history or old caches.
 
 References: [workflow events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows), [cache behavior](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching).
+
+Source-labelled regression evaluation is available through `evaluate` with `cases_path: memory/evaluation/<name>.json`. Inspect the report pass count; workflow success alone does not mean all cases passed. See [evaluation guidance](docs/EVALUATION.md).

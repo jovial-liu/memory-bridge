@@ -17,32 +17,32 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
           path: memory
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: jovial-liu/memory-bridge
           ref: main
           path: toolkit
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
       - name: Find pending requests
         id: pending
         run: python toolkit/cloud.py --root memory pending
       - name: Install semantic runtime
-        if: steps.pending.outputs.pending == 'true'
+        if: steps.pending.outputs.semantic == 'true'
         run: pip install -r toolkit/requirements-vector.txt
       - name: Restore model and vector cache
         if: steps.pending.outputs.pending == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: ${{ runner.temp }}/memory-runtime
-          key: memory-cloud-v2-${{ runner.os }}-${{ hashFiles('toolkit/requirements-vector.txt', 'toolkit/semantic.py', 'toolkit/rag.py', 'toolkit/embeddings.py') }}-${{ github.run_id }}
+          key: memory-cloud-v3-${{ runner.os }}-${{ hashFiles('toolkit/requirements-vector.txt', 'toolkit/semantic.py', 'toolkit/rag.py', 'toolkit/embeddings.py', 'toolkit/privacy.py') }}-${{ github.run_id }}
           restore-keys: |
-            memory-cloud-v2-${{ runner.os }}-${{ hashFiles('toolkit/requirements-vector.txt', 'toolkit/semantic.py', 'toolkit/rag.py', 'toolkit/embeddings.py') }}-
+            memory-cloud-v3-${{ runner.os }}-${{ hashFiles('toolkit/requirements-vector.txt', 'toolkit/semantic.py', 'toolkit/rag.py', 'toolkit/embeddings.py', 'toolkit/privacy.py') }}-
       - name: Run private RAG on GitHub
         if: steps.pending.outputs.pending == 'true'
         env:

@@ -21,3 +21,9 @@
 [创建自己的记忆仓库](https://github.com/jovial-liu/memory-bridge/generate)，选择 **Private（私有）**。进入 **Actions → Initialize Private Memory → Run workflow**，初始化后让有读写权限的 AI 插件读取 `AI_MEMORY.md`。代码、初始化、检索、写入都在 GitHub；不会导入作者的个人记忆。
 
 [部署与第一次请求（英文）](docs/QUICKSTART.md) · [架构与实际能力（英文）](docs/ARCHITECTURE.md)
+
+## 导入、隐私与检索验证
+
+新增提交前脱敏检查、加密原文归档、可读导出导入器及统一读写客户端。长文本按段落返回，保留对话对象、作者未知、时间精度与来源定位。云端新增带来源标签的评测；结果只代表指定用例，不代表所有问题准确率。
+
+[一句话接入](docs/ONE_PROMPT.md) · [隐私边界](docs/PRIVACY.md) · [导入覆盖](docs/IMPORTS.md) · [质量评测](docs/EVALUATION.md)
