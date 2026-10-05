@@ -46,7 +46,7 @@ def validate_request(item, ident):
         if memory_bridge.SECRET.search(item['query']): raise ValueError('Possible credential in query')
     if operation in {'graph','reflect','checkpoint','resume'} and not item.get('project'):
         raise ValueError('Operation requires explicit project')
-    if operation=='evaluate' and (not isinstance(item.get('cases_path'),str) or not re.fullmatch(r'memory/evaluation/[A-Za-z0-9_.-]+\\.json',item['cases_path'])):
+    if operation=='evaluate' and (not isinstance(item.get('cases_path'),str) or not re.fullmatch(r'memory/evaluation/[A-Za-z0-9_.-]+\.json',item['cases_path'])):
         raise ValueError('Evaluation requires a safe memory/evaluation JSON path')
     if operation in {'write','sync','forget'} and not request_events(item):
         raise ValueError('Write-like operations require event or events')
