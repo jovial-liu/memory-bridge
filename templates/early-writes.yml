@@ -1,0 +1,79 @@
+name: Memory Cloud
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'memory/requests/**'
+      - '.github/workflows/memory-cloud.yml'
+permissions:
+  contents: write
+concurrency:
+  group: memory-cloud
+  queue: max
+  cancel-in-progress: false
+jobs:
+  memory:
+    if: github.event.repository.private == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: main
+          fetch-depth: 0
+          path: memory
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: jovial-liu/memory-bridge
+          ref: 87e1af56b3b7a34cc958d9ea43304e7c52b432a0
+          path: toolkit
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Validate and isolate pending requests
+        id: pending
+        run: python toolkit/cloud.py --root memory pending
+      - name: Publish lightweight writes before heavy retrieval
+        id: fast
+        if: ${{ !cancelled() && steps.pending.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          MEMORY_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python toolkit/fastlane.py --root memory --publish
+      - name: Re-scan remaining work after write publication
+        id: remaining
+        if: ${{ !cancelled() && steps.pending.outcome == 'success' }}
+        run: python toolkit/cloud.py --root memory pending
+      - name: Install optional semantic runtime
+        if: steps.remaining.outputs.semantic == 'true'
+        continue-on-error: true
+        run: pip install -r toolkit/requirements-vector.txt
+      - name: Restore rebuildable semantic cache
+        if: steps.remaining.outputs.semantic == 'true'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ${{ runner.temp }}/memory-runtime
+          key: memory-cloud-v5-${{ runner.os }}-${{ hashFiles('toolkit/requirements-vector.txt', 'toolkit/semantic.py', 'toolkit/rag.py', 'toolkit/embeddings.py', 'toolkit/privacy.py') }}-${{ github.run_id }}
+          restore-keys: |
+            memory-cloud-v5-${{ runner.os }}-${{ hashFiles('toolkit/requirements-vector.txt', 'toolkit/semantic.py', 'toolkit/rag.py', 'toolkit/embeddings.py', 'toolkit/privacy.py') }}-
+      - name: Process remaining isolated requests
+        id: process
+        if: ${{ !cancelled() && steps.remaining.outcome == 'success' && steps.remaining.outputs.pending == 'true' }}
+        env:
+          MEMORY_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python toolkit/cloud.py --root memory run --db "$RUNNER_TEMP/memory-runtime/index.sqlite3" --model-dir "$RUNNER_TEMP/memory-runtime/model"
+      - name: Publish final receipts and status
+        if: ${{ always() && !cancelled() && steps.pending.outcome != '' }}
+        env:
+          MEMORY_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          MEMORY_PHASE: ${{ (steps.fast.outcome == 'failure' || steps.process.outcome == 'failure' || steps.remaining.outcome == 'failure' || steps.pending.outcome == 'failure' || steps.pending.outputs.rejected == 'true' || steps.remaining.outputs.rejected == 'true') && 'failed' || 'completed' }}
+        run: |
+          python toolkit/cloud.py --root memory status --phase "$MEMORY_PHASE"
+          python toolkit/cloud.py --root memory publish
+      - name: Fail visibly after preserving valid sibling writes
+        if: ${{ always() && !cancelled() && (steps.fast.outcome == 'failure' || steps.pending.outputs.rejected == 'true' || steps.remaining.outputs.rejected == 'true') }}
+        run: |
+          echo 'Some requests or publication failed; inspect private receipts.'
+          exit 2
