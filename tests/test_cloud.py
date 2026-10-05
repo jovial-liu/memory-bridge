@@ -48,6 +48,23 @@ class CloudTests(unittest.TestCase):
         self.assertEqual(first,manager.checkpoint(self.root,'a'*32,payload))
         self.assertEqual(manager.resume(self.root,'demo','task-one')['checkpoint']['id'],'a'*32)
         self.assertIsNone(manager.resume(self.root,'other','task-one')['checkpoint'])
+    def test_batch_write_and_materialized_status(self):
+        first=event();first.pop('id');first.pop('created_at');first['text']='First confirmed preference';first['stability']='stable'
+        second=event();second.pop('id');second.pop('created_at');second['kind']='project_state';second['text']='Current fictional priority';second['stability']='temporary'
+        self.request(operation='write',events=[first,second])
+        self.assertEqual(cloud.run(self.root,self.db,self.model),1)
+        result=json.loads((self.root/'memory/results'/('1'*32+'.json')).read_text())
+        self.assertEqual(result['result']['count'],2)
+        status=cloud.status_snapshot(self.root,'completed')
+        self.assertEqual(status['pending'],0);self.assertEqual(status['succeeded'],1)
+        now=(self.root/'memory/NOW.md').read_text()
+        self.assertIn('Current fictional priority',now)
+        self.assertNotIn('First confirmed preference',now)
+
+    def test_invalid_batch_rejected(self):
+        with self.assertRaises(ValueError):
+            cloud.validate_request(dict(id='1'*32,operation='write',events=[]),'1'*32)
+
     def test_invalid_scope_rejected(self):
         with self.assertRaises(ValueError):cloud.validate_request(dict(id='1'*32,operation='graph'),'1'*32)
 
