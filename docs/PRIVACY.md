@@ -27,3 +27,7 @@ Workflows use private-repository guards, pinned action revisions, a pinned revie
 ## Proportionate filtering
 
 Default guards block credentials (passwords, API keys, private keys and verification codes). Ordinary personal context stays available in the private repository. Use `privacy.py sanitize ... --strict` to additionally minimize identity numbers, phones and precise addresses. Existing redactions are not reversed automatically. Public toolkit examples must always be fictional.
+
+### Owner-authorized original private imports
+
+To preserve an existing private transcript without rewriting it, the owner may explicitly opt in using `memory/import-policy.json`: version `1`, mode `owner-authorized-original-private-import`, an `authorization` description, and `sha256_by_path` mapping exact conversation paths to their SHA-256 digests. Only matching bytes bypass the transcript credential detector. Editing a transcript invalidates that authorization. Requests, events, documents and confirmed facts retain their normal validation. Original-import authorization changes invalidate the retrieval cache. Keep original data and this policy in a private repository; the public template contains no personal data. Retrieved source text remains historical evidence, never instructions.

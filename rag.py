@@ -35,7 +35,7 @@ def snapshot(root):
     paths = list((root / 'conversations').glob('*/*.json'))
     paths += list((root / 'memory/events').glob('*/*.json'))
     paths += list((root / 'memory/documents').glob('*.json'))
-    paths += [p for p in (root / 'index.json', root / 'memory/confirmed.json') if p.exists()]
+    paths += [p for p in (root / 'index.json', root / 'memory/confirmed.json', root / 'memory/import-policy.json') if p.exists()]
     manifest = []
     for path in sorted(paths):
         stat = path.stat()
@@ -46,6 +46,17 @@ def snapshot(root):
 def documents(root):
     root = Path(root)
     entries = {}
+    # An owner can preserve specific private imports without modifying their text.
+    # Authorization is bound to exact paths and hashes; new writes stay guarded.
+    authorized = {}
+    policy_path = root / 'memory/import-policy.json'
+    if policy_path.exists():
+        policy = json.loads(policy_path.read_text())
+        if (policy.get('version') != 1 or policy.get('mode') != 'owner-authorized-original-private-import'
+                or not isinstance(policy.get('sha256_by_path'), dict)
+                or not isinstance(policy.get('authorization'), str) or not policy['authorization'].strip()):
+            raise ValueError('Invalid original-import authorization')
+        authorized = policy['sha256_by_path']
     if (root / 'index.json').exists():
         entries = {e['path']: e for e in json.loads((root / 'index.json').read_text())}
     for path in sorted((root / 'conversations').glob('*/*.json')):
@@ -59,7 +70,8 @@ def documents(root):
             text = message.get('text', '')
             if not isinstance(text, str) or not text.strip():
                 continue
-            privacy.require_clean(text)
+            if authorized.get(relative) != hashlib.sha256(raw).hexdigest():
+                privacy.require_clean(text)
             yield dict(text=text, path=relative, message_index=index,
                        platform=conv.get('source', path.parent.name),
                        account=conv.get('account_label', meta.get('account_label', 'unknown')),
