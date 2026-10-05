@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "kind": "preference",
+  "status": "confirmed",
+  "text": "演示项目中回答简洁，必要时提供详细来源。",
+  "scope": {
+    "project": "demo",
+    "platform": "example-app",
+    "account": "fictional-user"
+  },
+  "source": {
+    "reference": "fictional-demo-message-1",
+    "excerpt": "请在演示项目中先给简洁回答，需要时再给详细来源。"
+  },
+  "evidence_role": "user",
+  "supersedes": []
+}
