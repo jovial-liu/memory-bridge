@@ -23,8 +23,8 @@ A read-only connector can inspect stored memory/results but cannot submit a new 
 | operation | Payload / result |
 | --- | --- |
 | recall | query + scope; returns cited context |
-| write | event; validates and saves one memory event |
-| sync | event + query; saves and retrieves in one request |
+| write | event or events[]; validates and saves one or up to 100 memory events atomically |
+| sync | event or events[] + query; saves and retrieves in one request |
 | forget | user-confirmed forget event; suppresses event recall |
 | conflicts | returns unresolved structured claim disagreements |
 | graph | explicit project, optional entity/hops; sourced relation graph |
@@ -34,7 +34,7 @@ A read-only connector can inspect stored memory/results but cannot submit a new 
 
 All requests have id, optionally created_at, and an operation. recall/sync additionally require query. mode is keyword, semantic or hybrid; scope fields are project/platform/account/topic/memory_type. See [request example](../examples/request.json).
 
-write/sync/forget carry an event with the protocol fields; the cloud assigns a stable ID derived from the request ID, and records time if omitted. A retry reuses the same event. checkpoint state contains objective and optional string lists done/pending/next_steps. Checkpoints are reported historical state, not proof that an action completed.
+write/sync/forget carry either `event` or an `events` array with the protocol fields. A batch contains 1..100 events. The cloud validates the complete batch before writing, assigns stable event IDs derived from the request ID and position, and records time if omitted. A retry reuses the same IDs. checkpoint state contains objective and optional string lists done/pending/next_steps. Checkpoints are reported historical state, not proof that an action completed.
 
 The cloud batches pending requests, applies authorized writes, then builds retrieval data. Scoped queries encode the union of their scopes and disclose vector_coverage=scoped. An unscoped semantic request encodes the full eligible corpus. Content-addressed embedding caches reuse earlier vectors. File-only graph/working/reflect operations do not require a language model.
 
@@ -58,15 +58,15 @@ Use a fresh request ID and replace the fictional text and source with the user's
 }
 ```
 
-For a combined request, change operation to `sync`, add `query`, and optionally `project` and `mode` at the request's top level. Writes still require direct user evidence to be confirmed.
+For a combined request, change operation to `sync`, add `query`, and optionally `project` and `mode` at the request's top level. To save several confirmed memories from one conversation turn, replace `event` with `events: [ ... ]` instead of creating one request/commit per fact. Writes still require direct user evidence to be confirmed.
 
 ## Storage and limits
 
-- Private repository: conversations, events, requests, results, working checkpoints.
+- Private repository: conversations, events, requests, results, working checkpoints, `memory/status.json`, and generated `memory/NOW.md`.
 - Private Actions cache: model and SQLite/embedding derivatives; cache eviction is possible, so these are rebuildable.
 - Public repository: toolkit, protocol, tests, and fictional examples only.
 
-Results and written events are committed together, with fast-forward retries for concurrent branch updates. Logs show request IDs and counts, not retrieved memory excerpts. GitHub Actions uses execution minutes and has runtime/cache limits; it is a batch workflow, not unlimited compute or a permanent inference host.
+`memory/status.json` exposes request/result counts and workflow phase; `memory/NOW.md` is a compact generated current-state view. The workflow publishes a running status before heavy retrieval work and a completed/failed status afterward. Results and written events are committed together on successful runs, with fast-forward retries for concurrent branch updates. Logs show request IDs and counts, not retrieved memory excerpts. GitHub Actions uses execution minutes and has runtime/cache limits; it is a batch workflow, not unlimited compute or a permanent inference host.
 
 The template runs only when the repository is private. Do not copy personal memory into the public toolkit. Logical forgetting does not erase Git history or old caches.
 
