@@ -5,14 +5,16 @@ There is no universal best agent-memory architecture. Choose retrieval and lifec
 | Layer | Implemented here | Why it matters |
 | --- | --- | --- |
 | Source archive | Per-platform conversations, account labels, source hashes and partial-coverage markers | Preserve what was actually said and keep accounts traceable |
-| Navigation/core context | SUMMARY.md and detailed MEMORY.md, maintained deliberately | Give a short entry point without making a summary the sole record |
-| Long-term events | Semantic, episodic and procedural labels; candidate versus confirmed evidence | Separate assistant hypotheses from user-supported facts |
+| Navigation/core context | SUMMARY.md plus generated NOW.md current-state view and detailed MEMORY.md | Keep stable background separate from temporary/evolving state without making a summary the sole record |
+| Long-term events | Semantic, episodic and procedural labels; candidate versus confirmed evidence; stability metadata and exact-write deduplication | Separate assistant hypotheses from user-supported facts and control memory growth |
 | Working context | Project/task checkpoints and resume | Continue scoped work across sessions without asserting that reported steps actually executed |
 | Retrieval | Multilingual vectors, BM25, RRF, scopes and context budgets | Restore relevant evidence instead of loading the whole archive |
 | Time and change | Validity windows, corrections, explicit claim conflicts | Avoid treating an expired or contradicted fact as current |
 | Relationships | Explicit source-backed claims and links | Navigate known connections without silently inventing an entity graph |
 | Consolidation | Candidate-only evidence drafts | Support review without promoting inference into fact |
-| Control | Explicit read/write/sync/forget requests, per-task scope | Let the user decide when and where memory applies |
+| Control | Explicit read/write/sync/forget requests, per-task scope, batched events[] writes, machine-readable workflow status | Let the user decide when and where memory applies while keeping writeback efficient and observable |
+
+A private deployment can materialize two lightweight derived views from the event log: `memory/NOW.md` for current/evolving state and `memory/status.json` for request-processing health. They are disposable views, not canonical facts. Exact duplicate active events can be reused instead of appended again, while conflicting structured claims remain explicit rather than silently overwritten.
 
 Production storage and batch execution are on GitHub. The public template ships every listed capability; each deployment's actual personal records belong only in its private repository. Derived vectors are rebuildable cache, not the sole source of truth. Public code and private data remain separate repositories even when the private template also contains its own code snapshot.
 
