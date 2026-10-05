@@ -14,6 +14,26 @@ import rag
 import privacy
 
 
+def request_events(item):
+    """Return one or more event payloads while preserving the v1 single-event form."""
+    has_one = 'event' in item
+    has_many = 'events' in item
+    if has_one and has_many:
+        raise ValueError('Use event or events, not both')
+    if has_many:
+        events = item['events']
+        if not isinstance(events, list) or not 1 <= len(events) <= 100:
+            raise ValueError('events must contain 1..100 event objects')
+        if not all(isinstance(event, dict) for event in events):
+            raise ValueError('events must contain objects')
+        return events
+    if has_one:
+        if not isinstance(item['event'], dict):
+            raise ValueError('event must be an object')
+        return [item['event']]
+    return []
+
+
 def validate_request(item, ident):
     if not re.fullmatch(r'[a-f0-9]{32}', ident) or item.get('id') != ident:
         raise ValueError('Request ID/path mismatch')
@@ -26,8 +46,10 @@ def validate_request(item, ident):
         if memory_bridge.SECRET.search(item['query']): raise ValueError('Possible credential in query')
     if operation in {'graph','reflect','checkpoint','resume'} and not item.get('project'):
         raise ValueError('Operation requires explicit project')
-    if operation=='evaluate' and (not isinstance(item.get('cases_path'),str) or not re.fullmatch(r'memory/evaluation/[A-Za-z0-9_.-]+\.json',item['cases_path'])):
+    if operation=='evaluate' and (not isinstance(item.get('cases_path'),str) or not re.fullmatch(r'memory/evaluation/[A-Za-z0-9_.-]+\\.json',item['cases_path'])):
         raise ValueError('Evaluation requires a safe memory/evaluation JSON path')
+    if operation in {'write','sync','forget'} and not request_events(item):
+        raise ValueError('Write-like operations require event or events')
     if item.get('created_at'): memory_bridge.instant(item['created_at'])
     if item.get('mode', 'hybrid') not in {'keyword', 'semantic', 'hybrid'}:
         raise ValueError('Invalid query mode')
@@ -57,9 +79,10 @@ def pending(root):
     return items
 
 
-def write_event(root,item,kind=None):
-    event=dict(item.get('event',{}))
-    ident=hashlib.sha256((item['id']+':event').encode()).hexdigest()[:32]
+def write_event(root,item,event=None,index=0,total=1,kind=None):
+    event=dict(event if event is not None else item.get('event',{}))
+    suffix=':event' if total == 1 else ':event:'+str(index)
+    ident=hashlib.sha256((item['id']+suffix).encode()).hexdigest()[:32]
     old=next((Path(root)/'memory/events').glob('*/'+ident+'.json'),None)
     timestamp=json.loads(old.read_text())['created_at'] if old else item.get('created_at',dt.datetime.now(dt.timezone.utc).isoformat())
     event.update(version=1,id=ident,created_at=timestamp)
@@ -69,6 +92,12 @@ def write_event(root,item,kind=None):
     return dict(event_id=ident,path=path.relative_to(root).as_posix())
 
 
+def write_events(root,item,kind=None):
+    events=request_events(item)
+    rows=[write_event(root,item,event,index,len(events),kind) for index,event in enumerate(events)]
+    return rows[0] if len(rows) == 1 else dict(count=len(rows),events=rows)
+
+
 def run(root, db, model_dir):
     import manager
     root=Path(root).resolve()
@@ -76,16 +105,17 @@ def run(root, db, model_dir):
     # Fail before writing if any incoming event is invalid; prevent partial batches.
     for item,_ in jobs:
         if item.get('operation') in {'write','sync','forget'}:
-            candidate=dict(item.get('event',{}));candidate.update(version=1,id='0'*32,created_at=item.get('created_at',dt.datetime.now(dt.timezone.utc).isoformat()));candidate.setdefault('supersedes',[])
-            if item['operation']=='forget':candidate['kind']='forget'
-            memory_bridge.validate(candidate)
+            for raw in request_events(item):
+                candidate=dict(raw);candidate.update(version=1,id='0'*32,created_at=item.get('created_at',dt.datetime.now(dt.timezone.utc).isoformat()));candidate.setdefault('supersedes',[])
+                if item['operation']=='forget':candidate['kind']='forget'
+                memory_bridge.validate(candidate)
     if not jobs:return 0
     memory_bridge.load(root)
     prepared={}
     for item,_ in jobs:
         op=item.get('operation','recall')
         if op in {'write','sync','forget'}:
-            prepared[item['id']]=write_event(root,item,'forget' if op=='forget' else None)
+            prepared[item['id']]=write_events(root,item,'forget' if op=='forget' else None)
         elif op=='checkpoint':
             payload=dict(item.get('checkpoint',{}));payload['project']=item['project']
             prepared[item['id']]=manager.checkpoint(root,item['id'],payload)
@@ -148,7 +178,78 @@ def run(root, db, model_dir):
     return len(jobs)
 
 
-def publish(root):
+def build_now(root,limit=50):
+    """Materialize a small current-state view from confirmed lifecycle-aware events."""
+    root=Path(root)
+    events=memory_bridge.load(root)
+    inactive=memory_bridge.inactive_ids(events)
+    rows=[]
+    for event in events:
+        if event['id'] in inactive or event['status'] != 'confirmed' or event['kind'] == 'forget' or not memory_bridge.in_time(event):
+            continue
+        stability=event.get('stability','stable')
+        if not (stability in {'temporary','evolving'} or event['kind'] in {'project_state','decision'} or event.get('expires_at')):
+            continue
+        rows.append(event)
+    rows.sort(key=lambda event:(float(event.get('importance',0)),event['created_at'],event['id']),reverse=True)
+    rows=rows[:limit]
+    generated=dt.datetime.now(dt.timezone.utc).isoformat()
+    lines=[
+        '# NOW · current memory state',
+        '',
+        '> GENERATED from memory/events. Do not edit manually.',
+        '',
+        'Generated: '+generated,
+        '',
+        'This view contains current confirmed project states, decisions, expiring memories, and events marked evolving/temporary.',
+        ''
+    ]
+    if not rows:
+        lines.append('- No current-state events matched the materialization rules.')
+    for event in rows:
+        meta=[event['scope']['project'],event.get('stability','stable'),event['created_at'][:10]]
+        if event.get('expires_at'):meta.append('expires '+event['expires_at'])
+        lines.append('- '+event['text'].replace('\n',' ')+'  ')
+        lines.append('  _'+ ' · '.join(meta) +' · event '+event['id']+'_')
+    target=root/'memory/NOW.md'
+    target.write_text('\n'.join(lines)+'\n',encoding='utf-8')
+    return rows
+
+
+def status_snapshot(root,phase='idle'):
+    root=Path(root)
+    requests=sorted(path.stem for path in (root/'memory/requests').glob('*.json'))
+    results=sorted(path.stem for path in (root/'memory/results').glob('*.json'))
+    failures=sorted(path.stem for path in (root/'memory/failures').glob('*.json')) if (root/'memory/failures').exists() else []
+    done=set(results)|set(failures)
+    pending_ids=[ident for ident in requests if ident not in done]
+    last_result=None
+    for ident in results:
+        try:
+            row=json.loads((root/'memory/results'/(ident+'.json')).read_text())
+        except (OSError,ValueError,json.JSONDecodeError):
+            continue
+        if last_result is None or row.get('generated_at','') > last_result.get('generated_at',''):
+            last_result=row
+    payload=dict(
+        version=1,
+        generated_at=dt.datetime.now(dt.timezone.utc).isoformat(),
+        phase=phase,
+        requests_total=len(requests),
+        succeeded=len(results),
+        failed_known=len(failures),
+        pending=len(pending_ids),
+        pending_ids=pending_ids[:100],
+        last_completed_at=last_result.get('generated_at') if last_result else None,
+        last_workflow_url=os.environ.get('MEMORY_RUN_URL') or (last_result.get('workflow_url') if last_result else None),
+    )
+    target=root/'memory/status.json'
+    target.write_text(json.dumps(payload,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+    build_now(root)
+    return payload
+
+
+def publish(root,status_only=False):
     """Fast-forward retries regenerate no files and never overwrite concurrent edits."""
     root = Path(root)
     def git(*args):
@@ -156,13 +257,17 @@ def publish(root):
     branch = os.environ.get('MEMORY_BRANCH', 'main')
     if not re.fullmatch(r'[A-Za-z0-9_./-]+', branch) or branch.startswith('-') or '..' in branch:
         raise ValueError('Invalid destination branch')
-    if not (root/'memory/results').exists(): return
     git('config','user.name','github-actions[bot]')
     git('config','user.email','41898282+github-actions[bot]@users.noreply.github.com')
-    paths=[name for name in ['memory/results','memory/events','memory/working'] if (root/name).exists()]
+    if status_only:
+        paths=[name for name in ['memory/status.json','memory/NOW.md'] if (root/name).exists()]
+    else:
+        paths=[name for name in ['memory/results','memory/events','memory/working','memory/status.json','memory/NOW.md'] if (root/name).exists()]
+    if not paths:return
     git('add',*paths)
     if not git('diff','--cached','--name-only').stdout.strip(): return
-    git('commit','-m','Save cloud memory retrieval results')
+    message='Update memory cloud status' if status_only else 'Save cloud memory results and materialized views'
+    git('commit','-m',message)
     for attempt in range(3):
         try:
             git('push','origin','HEAD:'+branch);return
@@ -181,6 +286,8 @@ def main():
     sub=p.add_subparsers(dest='command',required=True)
     sub.add_parser('pending')
     sub.add_parser('publish')
+    sub.add_parser('publish-status')
+    status=sub.add_parser('status');status.add_argument('--phase',default='idle',choices=['idle','running','completed','failed'])
     work=sub.add_parser('run');work.add_argument('--db',required=True);work.add_argument('--model-dir',required=True)
     a=p.parse_args()
     if a.command=='pending':
@@ -193,6 +300,8 @@ def main():
             with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('semantic='+str(semantic).lower()+'\n')
         print(f'{count} pending memory requests')
     elif a.command=='publish':publish(a.root)
+    elif a.command=='publish-status':publish(a.root,status_only=True)
+    elif a.command=='status':print(json.dumps(status_snapshot(a.root,a.phase),ensure_ascii=False))
     else:print(f'Completed {run(a.root,a.db,a.model_dir)} requests')
 
 
