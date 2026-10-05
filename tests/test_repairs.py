@@ -107,6 +107,11 @@ class RepairTests(unittest.TestCase):
         model=Path(self.tmp.name)/'model';model.mkdir();(model/'manifest.json').write_text('{}')
         with patch('embeddings.LocalE5',return_value=Provider()):self.assertEqual(cloud.run(self.root,self.db,model),2)
         result=json.loads((self.root/'memory/results'/('2'*32+'.json')).read_text());self.assertGreaterEqual(len(result['results']),2)
+    def test_chinese_credential_is_label_and_numeric_code(self):
+        value='Lab'+str(222999)+'$'
+        cleaned,hits=privacy.sanitize_text('密码是'+value+'\n验证码\n'+str(778899))
+        self.assertNotIn(value,cleaned);self.assertNotIn(str(778899),cleaned);self.assertEqual(len(hits),2)
+        privacy.require_clean('密码是什么？普通聊天正常保留')
     def test_vault_roundtrip_and_tampering(self):
         try:from Cryptodome.Cipher import AES
         except ImportError:self.skipTest('Optional privacy runtime unavailable')

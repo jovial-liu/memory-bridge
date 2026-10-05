@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 
 TOKEN = re.compile(r'gh[pousr]_[A-Za-z0-9]{30,}|sk-(?:proj-)?[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----')
-LABEL = re.compile(r'''(?ix)(?:["']?(?:password|passwd|api[_-]?key|access[_-]?token|authorization|密码|口令|验证码)["']?[ \t]*[:：=][ \t]*["']?|(?:密码|口令)[ \t]+|(?:密码|口令)(?=[!]))([^\s,"'，；;。<>}\]]+)''')
+LABEL = re.compile(r'''(?ix)(?:["']?(?:password|passwd|api[_-]?key|access[_-]?token|authorization|密码|口令|验证码)["']?[ \t]*[:：=][ \t]*["']?|(?:密码|口令)[ \t]+|(?:密码|口令)(?:是|为)[ \t]*|(?:密码|口令)(?=[!]))([^\s,"'，；;。<>}\]]+)''')
 AUTH = re.compile(r'(?im)^.*(?:facebook|pinterest|printerest|instagram|\bins\b|\bx[ \t]+).*(?:![A-Za-z0-9]{4,}|\b(?:pin|code)[ \t]+\d{4,8}).*$')
 PIN = re.compile(r'(?i)\b(?:pin|code)[ \t]+(\d{4,8})\b')
 ID = re.compile(r'(?<![A-Za-z0-9])\d{6}(?:19|20)\d{9}[\dXx](?![A-Za-z0-9])')
@@ -25,7 +25,7 @@ def findings(text, strict=False):
     if strict:patterns += [('identity-number',ID),('phone-number',PHONE),('precise-address',ADDRESS)]
     for kind,pattern in patterns:
         for match in pattern.finditer(text):add(kind,*match.span())
-    for pattern in [LABEL,PIN]:
+    for pattern in [LABEL,PIN,re.compile(r'(?:验证码)[ \t]*(?:是|为)?[ \t]*(\d{4,8})')]:
         for match in pattern.finditer(text):
             value=match.group(1)
             if re.search(r'[A-Za-z0-9!@#$%^&*]',value):add('credential',*match.span(1))
@@ -33,7 +33,7 @@ def findings(text, strict=False):
     for index,line in enumerate(lines):
         value=line.strip()
         nearby=''.join(lines[max(0,index-4):index])
-        if CUE.search(nearby) and re.fullmatch(r'[A-Za-z0-9!@#$%^&*_.+-]{6,100}',value) and re.search(r'\d',value) and re.search(r'[A-Za-z!@#$%^&*]',value):
+        if CUE.search(nearby) and re.fullmatch(r'[A-Za-z0-9!@#$%^&*_.+-]{6,100}',value) and re.search(r'\d',value) and (re.search(r'[A-Za-z!@#$%^&*]',value) or re.fullmatch(r'\d{6,8}',value)):
             add('credential',pos+line.index(value),pos+line.index(value)+len(value))
         pos+=len(line)
     # Merge overlapping detector findings once, including auth-line/number overlaps.
@@ -67,7 +67,7 @@ def sanitize_object(value, strict=False):
                     if not isinstance(msg,dict) or not isinstance(msg.get('text'),str):continue
                     prior='\n'.join(m.get('text','') for m in messages[max(0,i-2):i] if isinstance(m,dict))
                     text=msg['text'].strip()
-                    if CUE.search(prior) and re.fullmatch(r'[A-Za-z0-9!@#$%^&*_.+-]{6,100}',text) and re.search(r'\d',text) and re.search(r'[A-Za-z!@#$%^&*]',text) and not PLACEHOLDER.match(text):
+                    if CUE.search(prior) and re.fullmatch(r'[A-Za-z0-9!@#$%^&*_.+-]{6,100}',text) and re.search(r'\d',text) and (re.search(r'[A-Za-z!@#$%^&*]',text) or re.fullmatch(r'\d{6,8}',text)) and not PLACEHOLDER.match(text):
                         msg['text']='[REDACTED_CREDENTIAL]';report.append({'kind':'credential','field':field+'/messages/'+str(i)+'/text','line':1,'start':0,'end':len(text)})
             return result
         return item
