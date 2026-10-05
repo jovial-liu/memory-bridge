@@ -60,6 +60,10 @@ Use a fresh request ID and replace the fictional text and source with the user's
 
 For a combined request, change operation to `sync`, add `query`, and optionally `project` and `mode` at the request's top level. To save several confirmed memories from one conversation turn, replace `event` with `events: [ ... ]` instead of creating one request/commit per fact. Writes still require direct user evidence to be confirmed.
 
+## Current-state materialization
+
+Recent/evolving state should use lifecycle metadata rather than being mixed with permanent profile facts. Events may set `stability` to `stable`, `evolving`, or `temporary`, together with `valid_from`, `expires_at`, and `importance`. `cloud.py status` materializes a compact `memory/NOW.md` view plus `memory/status.json` so agents can read current priorities and queue health without scanning the full history.
+
 ## Storage and limits
 
 - Private repository: conversations, events, requests, results, working checkpoints, `memory/status.json`, and generated `memory/NOW.md`.
