@@ -82,7 +82,7 @@ class RetrievalTests(unittest.TestCase):
         source = self.root/'conversations/example/human-chat.json'
         source.write_text(json.dumps(dict(source='qq', project='private-chat', title='Fictional chat',
             coverage='UI excerpt, not complete', messages=[dict(role='participant', sender='fictional-peer',
-            role_status='inferred-from-ui-not-verified', text='A peer discussed database practice.')]))))
+            role_status='inferred-from-ui-not-verified', text='A peer discussed database practice.')])))
         rag.build(self.root, self.db)
         found = rag.retrieve(self.root, self.db, 'database practice', platform='qq')
         self.assertEqual(found[0]['role'], 'participant')
