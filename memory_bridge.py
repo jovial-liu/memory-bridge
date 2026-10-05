@@ -90,6 +90,8 @@ def validate(event):
         raise ValueError('importance must be between 0 and 1')
     if event.get('memory_type', 'semantic') not in {'semantic', 'episodic', 'procedural'}:
         raise ValueError('Invalid memory_type')
+    if event.get('stability', 'stable') not in {'stable', 'evolving', 'temporary'}:
+        raise ValueError('Invalid stability')
     if 'claim' in event:
         claim = event['claim']
         if not isinstance(claim, dict) or not all(isinstance(claim.get(k), str) and claim[k].strip()
