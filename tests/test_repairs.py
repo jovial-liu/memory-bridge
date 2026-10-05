@@ -41,8 +41,8 @@ class RepairTests(unittest.TestCase):
         self.assertTrue(all('value' not in h for h in hits))
     def test_identity_phone_and_tracking_boundaries(self):
         number='110105'+'20060101'+'1234';phone='138'+'00138000'
-        cleaned,hits=privacy.sanitize_text(number+'\n'+phone+'\n1ZABC'+phone)
-        self.assertNotIn('\n'+phone+'\n',cleaned);self.assertNotIn(number,cleaned);self.assertIn('1ZABC'+phone,cleaned)
+        cleaned,hits=privacy.sanitize_text(number+'\n'+phone+'\n1ZABC'+phone,strict=True)
+        self.assertNotIn('\n'+phone+'\n',cleaned);self.assertNotIn(number,cleaned);self.assertIn('1ZABC'+phone,cleaned);privacy.require_clean(phone+' ordinary personal context')
     def test_json_adjacent_messages_and_placeholders(self):
         value='Lab'+str(887766);clean,hits=privacy.sanitize_object({'messages':[{'text':'密码是什么'},{'text':value}]})
         self.assertNotIn(value,json.dumps(clean));privacy.require_clean('password: YOUR_PASSWORD');privacy.require_clean(clean)

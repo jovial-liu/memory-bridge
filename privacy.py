@@ -15,13 +15,15 @@ ADDRESS = re.compile(r'(?m)^.*(?:省|自治区|市).*(?:社区|小区|街道|\d+
 CUE = re.compile(r'(?i)密码|口令|验证码|password|\bpin\b')
 PLACEHOLDER = re.compile(r'(?i)^(?:\[redacted|<|your_|example_|dummy_|test_|none$|null$|怎么|什么|啥|格式|同$|没有|不知道|不记得)')
 
-def findings(text):
+def findings(text, strict=False):
     if not isinstance(text, str): raise ValueError('Expected text')
     spans=[]
     def add(kind,start,end):
         if end > start and not PLACEHOLDER.match(text[start:end]):
             spans.append({'kind':kind,'start':start,'end':end,'line':text.count('\n',0,start)+1})
-    for kind,pattern in [('credential',TOKEN),('credential',AUTH),('identity-number',ID),('phone-number',PHONE),('precise-address',ADDRESS)]:
+    patterns=[('credential',TOKEN),('credential',AUTH)]
+    if strict:patterns += [('identity-number',ID),('phone-number',PHONE),('precise-address',ADDRESS)]
+    for kind,pattern in patterns:
         for match in pattern.finditer(text):add(kind,*match.span())
     for pattern in [LABEL,PIN]:
         for match in pattern.finditer(text):
@@ -43,17 +45,17 @@ def findings(text):
         else:merged.append(item.copy())
     return merged
 
-def sanitize_text(text):
-    hits=findings(text);clean=text
+def sanitize_text(text, strict=False):
+    hits=findings(text,strict);clean=text
     for hit in reversed(hits):
         clean=clean[:hit['start']]+'[REDACTED_'+hit['kind'].upper().replace('-','_')+']'+clean[hit['end']:]
     return clean,hits
 
-def sanitize_object(value):
+def sanitize_object(value, strict=False):
     report=[]
     def walk(item,field):
         if isinstance(item,str):
-            clean,hits=sanitize_text(item)
+            clean,hits=sanitize_text(item,strict)
             report.extend({**h,'field':field} for h in hits)
             return clean
         if isinstance(item,list):return [walk(x,field+'/'+str(i)) for i,x in enumerate(item)]
@@ -80,11 +82,12 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__);sub=parser.add_subparsers(dest='command',required=True)
     command=sub.add_parser('sanitize');command.add_argument('input');command.add_argument('--output',required=True);command.add_argument('--report',required=True)
     scan=sub.add_parser('scan');scan.add_argument('input');scan.add_argument('--report',required=True)
+    command.add_argument('--strict',action='store_true',help='Also minimize identity numbers, phones and addresses');scan.add_argument('--strict',action='store_true')
     args=parser.parse_args();source=Path(args.input);raw=source.read_bytes();text=raw.decode('utf-8')
     if source.suffix=='.json':
-        clean,hits=sanitize_object(json.loads(text));data=(json.dumps(clean,ensure_ascii=False,indent=2)+'\n').encode()
+        clean,hits=sanitize_object(json.loads(text),args.strict);data=(json.dumps(clean,ensure_ascii=False,indent=2)+'\n').encode()
     else:
-        clean,hits=sanitize_text(text);data=clean.encode()
+        clean,hits=sanitize_text(text,args.strict);data=clean.encode()
     report={'version':1,'input_sha256':hashlib.sha256(raw).hexdigest(),'output_sha256':hashlib.sha256(data).hexdigest(),'findings':hits,'count':len(hits),'scope':'pattern-based; not a guarantee of complete anonymization'}
     Path(args.report).write_text(json.dumps(report,indent=2)+'\n')
     if args.command=='sanitize':
