@@ -52,7 +52,7 @@ def documents(root):
         relative = path.relative_to(root).as_posix()
         meta = entries.get(relative, {})
         for index, message in enumerate(conv.get('messages', [])):
-            if message.get('role') not in {'user', 'assistant'}:
+            if message.get('role') not in {'user', 'assistant', 'participant'}:
                 continue
             text = message.get('text', '')
             if not isinstance(text, str) or not text.strip():

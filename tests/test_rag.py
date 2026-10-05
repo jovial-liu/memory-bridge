@@ -78,5 +78,16 @@ class RetrievalTests(unittest.TestCase):
         (folder/'bad.json').write_text(json.dumps(dict(version=1, documents=[dict(text='unsourced identity claim')])))
         with self.assertRaises(ValueError): rag.build(self.root, self.db)
 
+    def test_human_chat_participant_keeps_its_role(self):
+        source = self.root/'conversations/example/human-chat.json'
+        source.write_text(json.dumps(dict(source='qq', project='private-chat', title='Fictional chat',
+            coverage='UI excerpt, not complete', messages=[dict(role='participant', sender='fictional-peer',
+            role_status='inferred-from-ui-not-verified', text='A peer discussed database practice.')]))))
+        rag.build(self.root, self.db)
+        found = rag.retrieve(self.root, self.db, 'database practice', platform='qq')
+        self.assertEqual(found[0]['role'], 'participant')
+        self.assertEqual(found[0]['status'], 'historical')
+        self.assertEqual(found[0]['role_status'], 'inferred-from-ui-not-verified')
+
 
 if __name__ == '__main__': unittest.main()
