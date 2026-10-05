@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: jovial-liu/memory-bridge
-          ref: 3b6065fe96753350700eb26d97c9a8279e6e63fa
+          ref: 541bcb3ae81b9f7aaf070b65bd98345639172d32
           path: toolkit
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
