@@ -70,6 +70,8 @@ class RepairTests(unittest.TestCase):
         p=self.conversation();relative=p.relative_to(self.root).as_posix()
         cases=[{'id':'passages','query':'pear comet','project':'demo','expected':{'paths_all':[relative],'min_chunks':2,'contains_all':['pear','comet'],'roles':['participant'],'unknown_speakers':True,'unknown_times':True}},{'id':'scope','query':'pear','project':'other','expected':{'empty':True}}]
         r=evaluate.evaluate(self.root,self.db,cases);self.assertEqual(r['passed'],2);self.assertEqual(r['scope_leaks'],0)
+        cases[0]['expected']['source_roles']={relative:'user'}
+        self.assertFalse(evaluate.evaluate(self.root,self.db,cases)['cases'][0]['passed'])
     def test_incoming_sensitive_query_and_event_blocked(self):
         item={'id':'a'*32,'operation':'write','event':{'text':'密码 '+('Lab'+str(654321))}}
         with self.assertRaises(ValueError):cloud.validate_request(item,'a'*32)

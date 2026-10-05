@@ -14,7 +14,7 @@ def evaluate(root,db,cases):
         if not isinstance(case.get('id'),str) or not isinstance(case.get('query'),str):raise ValueError('Case requires id/query')
         filters={k:case[k] for k in ['project','platform','account','topic','memory_type'] if case.get(k) is not None}
         hits=rag.retrieve(root,db,case['query'],case.get('limit',8),**filters);expected=case.get('expected',{})
-        if not isinstance(expected,dict) or not expected or not any(k in expected for k in ('paths_all','empty','min_chunks','contains_all','roles','statuses','unknown_speakers','unknown_times')):raise ValueError('Case must assert expected behavior')
+        if not isinstance(expected,dict) or not expected or not any(k in expected for k in ('paths_all','empty','min_chunks','contains_all','roles','statuses','unknown_speakers','unknown_times','source_roles','source_statuses')):raise ValueError('Case must assert expected behavior')
         paths={h['path'] for h in hits};ok=True;checks={}
         if 'paths_all' in expected:
             source_cases+=1;checks['sources']=all(p in paths for p in expected['paths_all']);source_passes+=int(checks['sources'])
@@ -23,6 +23,9 @@ def evaluate(root,db,cases):
         if 'contains_all' in expected:checks['text']=all(t in '\n'.join(h['text'] for h in hits) for t in expected['contains_all'])
         if 'roles' in expected:checks['roles']=bool(hits) and all(h['role'] in expected['roles'] for h in hits)
         if 'statuses' in expected:checks['statuses']=bool(hits) and all(h['status'] in expected['statuses'] for h in hits)
+        for name,field in [('source_roles','role'),('source_statuses','status')]:
+            if name in expected:
+                checks[name]=all(any(h['path']==path for h in hits) and all(h[field]==value for h in hits if h['path']==path) for path,value in expected[name].items())
         if expected.get('unknown_speakers'):checks['unknown_speakers']=bool(hits) and all('unknown' in h.get('sender','unknown') for h in hits)
         if expected.get('unknown_times'):checks['unknown_times']=bool(hits) and all(h['timestamp'] is None for h in hits)
         checks['scope']=all(all(h.get(k)==v for k,v in filters.items() if k not in {'topic','memory_type'}) for h in hits)
