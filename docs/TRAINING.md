@@ -1,9 +1,9 @@
-# 未来微调
+# Preparing future training data
 
-记忆检索与微调目的不同：前者提供可更新的背景，后者训练选定的行为或能力。保留对话不等于已经获得高质量训练集。
+Retrieval supplies updatable background. Fine-tuning trains selected behaviors or capabilities. Keeping an archive does not create a high-quality training set by itself.
 
-先按平台、账号、项目选样；核对角色、来源和内容质量。用户问题不代表用户认可 AI 的答案。导出的分支对话需还原路径，不能将分支串接。区分原图与截图证据。
+Select samples by platform, account, and project. Review roles, evidence and answer quality: a user question does not mean the assistant's answer was endorsed. Restore individual paths in branched exports instead of concatenating parallel branches. Distinguish original attachments from preview screenshots.
 
-审核后的样本另存于私有 training/，保留 source_path、source_sha256、message_indices、review_status、purpose 和 split。按完整对话分组拆分训练/验证/评估，高相似或重复记录归同组。选择目标模型后再输出其要求的格式。
+Keep reviewed samples in the private training/ directory, separate from ordinary memory. Retain source_path, source_sha256, message_indices, review_status, purpose, and split. Split by whole conversations and group near-duplicates together to prevent leakage. Convert to the selected model's required format only after choosing a training target.
 
-本项目没有运行微调或自动产生训练样本。
+This project does not run fine-tuning or automatically label archive text as approved training data.

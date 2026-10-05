@@ -1,0 +1,55 @@
+import json
+from pathlib import Path
+import tempfile
+import sys
+import unittest
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+import cloud
+import manager
+import memory_bridge as m
+from test_memory_bridge import event
+
+
+class CloudTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)/'memory';self.root.mkdir()
+        (self.root/'memory/requests').mkdir(parents=True)
+        self.db=Path(self.tmp.name)/'db.sqlite3';self.model=Path(self.tmp.name)/'model'
+    def tearDown(self):self.tmp.cleanup()
+    def request(self,ident='1'*32,**kw):
+        item=dict(id=ident,created_at='2026-10-05T08:00:00Z',**kw)
+        (self.root/'memory/requests'/(ident+'.json')).write_text(json.dumps(item))
+        return item
+    def test_one_prompt_sync_and_retry(self):
+        e=event();e.pop('id');e.pop('created_at')
+        self.request(operation='sync',query='answers',mode='keyword',project='demo',event=e)
+        self.assertEqual(cloud.run(self.root,self.db,self.model),1)
+        result=json.loads((self.root/'memory/results'/('1'*32+'.json')).read_text())
+        self.assertEqual(result['execution'],'github-actions')
+        self.assertIn('write',result);self.assertTrue(result['results'])
+        self.assertEqual(cloud.run(self.root,self.db,self.model),0)
+    def test_modified_request_rejected(self):
+        self.request(operation='recall',query='answers',mode='keyword')
+        cloud.run(self.root,self.db,self.model)
+        self.request(operation='recall',query='changed',mode='keyword')
+        with self.assertRaises(ValueError):cloud.pending(self.root)
+    def test_graph_and_reflection_not_confirmed(self):
+        e=event();e['claim']=dict(subject='fictional-user',predicate='prefers',value='concise answers');m.save(self.root,e)
+        self.assertEqual(len(manager.graph(self.root,'demo')['edges']),1)
+        draft=manager.reflect(self.root,'demo');self.assertEqual(draft['status'],'candidate')
+        self.request(operation='reflect',project='demo',save=True)
+        cloud.run(self.root,self.db,self.model)
+        candidates=[x for x in m.load(self.root) if x['status']=='candidate']
+        self.assertEqual(len(candidates),1);self.assertEqual(candidates[0]['evidence_role'],'assistant')
+    def test_checkpoint_resume_and_retry(self):
+        payload=dict(project='demo',task_id='task-one',state=dict(objective='Fictional task',pending=['Check sources']),
+                     source=dict(reference='fictional-message',excerpt='Resume after checking sources'))
+        first=manager.checkpoint(self.root,'a'*32,payload)
+        self.assertEqual(first,manager.checkpoint(self.root,'a'*32,payload))
+        self.assertEqual(manager.resume(self.root,'demo','task-one')['checkpoint']['id'],'a'*32)
+        self.assertIsNone(manager.resume(self.root,'other','task-one')['checkpoint'])
+    def test_invalid_scope_rejected(self):
+        with self.assertRaises(ValueError):cloud.validate_request(dict(id='1'*32,operation='graph'),'1'*32)
+
+
+if __name__=='__main__':unittest.main()

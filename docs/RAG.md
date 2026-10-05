@@ -1,31 +1,43 @@
-# 检索与上下文组装
+# Semantic and hybrid retrieval
 
-GitHub 是可追溯的记忆底座，检索索引是本地可重建的缓存。索引含私有文字，保存在仓库之外，不提交到公开库，也不作为 GitHub 上不断改写的数据库。
+## Pipeline
 
-## 已实现
+Source messages → overlapping chunks → BM25 and/or local E5 vectors → scope/time/lifecycle filtering → reciprocal rank fusion → deduplication → verified citations → budgeted context → the calling AI app generates an answer.
 
-`rag.py` 使用 SQLite FTS5/BM25 排序，支持英文单词、中文单字与相邻双字组合，无模型下载、网络调用或 API 密钥。按消息边界切分长文本为 1200 字符片段，重叠 160 字符；保留源文件、消息编号、字符位置、SHA-256、角色、账号、覆盖说明及候选/确认状态。
+The toolkit implements retrieval and context assembly, not a generation model. It does not send private text to an embedding API.
+
+## Index and query
 
 ```sh
-python3 rag.py --root ../private-memory --db ../local-index.sqlite3 index
-python3 rag.py --root ../private-memory --db ../local-index.sqlite3 retrieve '论文投稿' --topic research --limit 8
-python3 rag.py --root ../private-memory --db ../local-index.sqlite3 context '模型训练' --topic ai-infrastructure --budget 12000
+python3 rag.py --root ../PRIVATE_MEMORY --db ../index.sqlite3 index
+python3 rag.py --root ../PRIVATE_MEMORY --db ../index.sqlite3 download-model --model-dir ../e5-model
+python3 rag.py --root ../PRIVATE_MEMORY --db ../index.sqlite3 embed --model-dir ../e5-model
+python3 rag.py --root ../PRIVATE_MEMORY --db ../index.sqlite3 retrieve 'past research decisions' --mode hybrid --model-dir ../e5-model --topic research --limit 8
+python3 rag.py --root ../PRIVATE_MEMORY --db ../index.sqlite3 context 'how I prefer answers' --mode semantic --model-dir ../e5-model --budget 12000
 ```
 
-`retrieve` 输出带引用 ID 的 JSON；`context` 输出受字符预算约束的背景包，供调用方 AI 生成回答。工具不调用生成模型，因此是 RAG 的检索和上下文组装层。预算按字符计算，不保证等于模型 token 上限；接入具体模型后调用方需再次按 token 预算裁剪。
+Modes: keyword (no vector dependencies), semantic, hybrid. Filters: --project, --platform, --account, --topic, --memory-type. --project matches explicit labels only; unlabeled historical conversations stay unknown. Topic labels come from index.json, not automatic identity inference.
 
-`--project` 严格匹配明确的项目字段，不从对话标题猜项目。旧对话没有项目标签时为 unknown，可按 `--topic`、`--platform`、`--account` 检索。主题来自已有 index.json；没有索引的库不自动推断主题。跨项目通用偏好需要明确查 global，不自动加入。
+## Embedding model
 
-新记忆更正链在索引时排除已替代事件。原始历史对话仍是历史证据，可检索但不能当作当前事实。索引记录源目录快照；源文件增删改、主题索引变化或新增更正后，检索拒绝使用旧索引并要求重建。返回片段前再核对源文件 SHA-256。索引在临时文件中构建，完成后原子替换。
+The default backend is the quantized ONNX conversion of intfloat/multilingual-e5-small from Xenova/multilingual-e5-small, pinned to revision 761b726dd34fb83930e26aab4e9ac3899aa1fa78. Downloads verify the model's LFS SHA-256 and record file digests. Loading checks those digests again. Query/passage prefixes, attention-mask mean pooling, and L2 normalization follow the original model card.
 
-附件索引和原始图片本轮不进入文本检索；需通过原文关联查附件。截图不是原图、角色推断不是验证身份，这些限制随来源保留。
+Long chunks use overlapping tokenizer overflow windows; window vectors are averaged and normalized. This covers the full chunk instead of silently dropping its tail, but can dilute narrow details. The original 1200-character chunks overlap by 160 characters. Quantization and window averaging can change quality from the original model.
 
-## 升级路径
+## Cache and coverage
 
-当前是词法检索，不能保证同义表达的语义召回。后续可配置 embedding 模型，按 source SHA、模型 ID 和切分版本缓存向量，将向量候选与 BM25 候选合并后重排。若使用外部 embedding 服务，须明确哪些私人数据将发送；默认不发送。
+Embeddings are cached by model fingerprint and text digest. Lexical rebuilds retain reusable embedding-cache entries, then embed reconnects vectors to the current chunk IDs. A partial/interrupted encoding has no valid vector_snapshot, so semantic queries refuse it. Completed results disclose all-chunks or memory-only coverage.
 
-语义向量、重排器、图谱检索和在线 MCP 服务尚未实现。GitHub 插件若无法运行本地工具，可沿 SUMMARY/topics/index 做文件检索，但不能假装已经运行 RAG。
+Use --memory-only for explicit limited semantic coverage of curated facts/events. Keywords can still cover the historical archive; this is not full-corpus semantic recall.
 
-评估应使用用户实际问题形成小型标注集，记录正确来源、召回率、错误跨项目引用及陈旧记忆误用。本项目目前通过结构、过滤、引用与更新失效测试，尚未声称生产检索质量已完成评估。
+The cache contains private derivatives. Keep it outside Git repositories. Snapshot invalidation catches source/index changes, and retrieved files are checked by SHA-256. Expiry and future validity are evaluated at query time, even if the files did not change.
 
-参考：[SQLite FTS5](https://www.sqlite.org/fts5.html)、[RAG 原论文](https://arxiv.org/abs/2005.11401)。本项目是检索增强工作流工具，不复现论文中的模型训练。
+## Ranking and citations
+
+RRF adds 1/(60+rank) for each candidate channel. It is deterministic rank fusion, not a trained reranker. Semantic scores express relative similarity, not truth or confidence. Top neighbors can be irrelevant; the calling assistant must assess relevance and acknowledge missing evidence.
+
+Results retain source file, message index, character offset, checksum, role, role-status, time, coverage, platform and account. Explicit unresolved claims include conflicting event IDs. Context budgets count characters, not model tokens; the calling app must check its own token budget.
+
+Attachments are not embedded or OCR'd by this version. Historical conversations remain evidence, not current facts. Inferred UI roles and partial exports retain their labels.
+
+References: [SQLite FTS5](https://www.sqlite.org/fts5.html), [original multilingual E5 model card](https://huggingface.co/intfloat/multilingual-e5-small), [ONNX conversion](https://huggingface.co/Xenova/multilingual-e5-small).

@@ -1,29 +1,28 @@
-# 其他 App 的一句话接入
+# One-sentence access from other AI apps
 
-首次设置：告诉助手你的私有仓库 `OWNER/PRIVATE_MEMORY_REPO`，通过 App 的 GitHub 连接授权这个仓库。不要把 token 粘贴到对话或记忆文件。
+First tell your assistant the private repository name, OWNER/PRIVATE_MEMORY_REPO, and authorize that repository through its GitHub integration. Do not paste access tokens into chat or memory files.
 
-复制 [入口模板](AI_MEMORY.template.md) 到私有库根目录 `AI_MEMORY.md`，根据实际目录修改链接。根目录入口只需设置一次；后续每次一句话指定任务。
+Copy [AI_MEMORY.template.md](AI_MEMORY.template.md) to the root of the private repository as AI_MEMORY.md. Adapt the paths to your actual archive. The setup is done once; subsequent tasks can use natural language.
 
-## 读取提示词
+## Read prompt
 
-> 使用我的私有 GitHub 记忆库 OWNER/PRIVATE_MEMORY_REPO。先读 AI_MEMORY.md，只读取本轮项目相关的记忆，必要时查原文。区分事实和历史，告诉我用了哪些来源。
+> Use my private GitHub memory repository OWNER/PRIVATE_MEMORY_REPO. Read AI_MEMORY.md first, recover only context relevant to this project, and cite the sources you actually used.
 
-## 写入提示词
+## Write prompt
 
-> 把这次确定的信息写入 OWNER/PRIVATE_MEMORY_REPO 的记忆。按 AI_MEMORY.md 创建独立事件，保留来源、范围和时间；如更正旧记忆，用 supersedes 关联。提交成功后给我提交链接。
+> Save what we just agreed to OWNER/PRIVATE_MEMORY_REPO. Create a separate event according to AI_MEMORY.md, preserve source, scope and time, and use supersedes for a correction. Return the commit link after saving.
 
-读写都可以用普通自然语言，不需要每次输入完整提示词；前提是该 App 的当前上下文或设置已知道仓库名和协议。
+## Capability check
 
-## 能力核对
-
-| 连接器能力 | 可执行的动作 |
+| Connector capability | Supported workflow |
 | --- | --- |
-| 仅搜索或读取 | 读取摘要、检索原文；生成待写入补充文件 |
-| 可创建、更新仓库文件 | 创建新事件，读回核对结果 |
-| 可本地克隆、提交、推送 | 使用 Python 工具并提交 Git |
+| Search/read only | Read context; produce a proposed event file for another writer |
+| Repository file creation/update | Save events through GitHub APIs and read back results |
+| Local execution or a retrieval tool | Run keyword, semantic, or hybrid retrieval |
+| Local clone/commit/push | Use the Python toolkit and submit Git changes |
 
-GitHub Contents API：读取文件使用 GET；创建/更新文件使用 PUT 和 Base64 内容。更新已有文件需要当前 blob SHA。fine-grained 权限通常读取需要 Contents: read，写入需要 Contents: write。实际 GitHub App/OAuth 授权方式以连接器为准。
+GitHub's Contents API uses GET to read and PUT with Base64 content to create/update. Updating an existing file requires its current blob SHA. Fine-grained access typically requires Contents: read for reading and Contents: write for writing; the integration's actual authorization mechanism may differ.
 
-每次写入优先创建新事件文件，减少多个助手争用同一个摘要。GitHub 内容创建、更新或删除操作的并发可能冲突；失败时按协议核对并重试。项目本身不运行远端同步服务。
+Prefer a new event file per write. GitHub operations may still conflict at the branch level; re-read and retry without force-overwriting. This project does not run an online synchronization service and has not verified every vendor's GitHub plugin.
 
-官方参考：[GitHub 文件 API](https://docs.github.com/en/rest/repos/contents)。
+Official reference: [GitHub Contents API](https://docs.github.com/en/rest/repos/contents).

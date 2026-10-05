@@ -1,43 +1,42 @@
-# 设计
+# Architecture
 
-两个仓库：公开工具与私有数据分开。公开库的所有示例从零编写，不从私人历史复制。用户的私有库不需要成为公开库的 fork，也不需要把数据同步到公开仓库。
+Separate public tooling from private evidence. Public examples are written from scratch; private archives are not copied into this project. A private memory repository does not need to fork the public toolkit.
 
 ```mermaid
 flowchart LR
-  A[用户本轮指定范围] --> B[获得权限的 AI App]
-  B --> C[私有库 AI_MEMORY.md]
-  C --> D[简略摘要与主题目录]
-  D --> E[相关对话与附件]
-  B --> F[独立的新记忆事件]
-  F --> G[私有库 Git 提交与读回核对]
-  H[公开工具与协议] --> B
+  U[User chooses scope] --> A[Authorized AI app]
+  A --> E[Private AI_MEMORY.md]
+  E --> N[Summaries and source indexes]
+  N --> K[Local BM25 index]
+  N --> V[Local semantic vectors]
+  K --> F[Scoped RRF fusion]
+  V --> F
+  F --> C[Cited context bundle]
+  C --> A
+  A --> W[New memory event]
+  W --> G[Private Git commit and read-back]
 ```
 
-## 四层信息
+## Memory layers
 
-1. 导航层：SUMMARY.md 只提供小型入口，MEMORY.md 和 topics/ 提供更多上下文。
-2. 记忆层：带来源的 confirmed/candidate/historical 事件，按范围检索，更正保留关联。
-3. 证据层：各平台、账号的原文及附件，已有规范化对话可继续使用。
-4. 训练层：另行审核、转换的数据集，不将归档默认视为优质训练样本。
+- Episodic evidence: original conversations, roles, dates, and attachments.
+- Semantic memory: sourced facts and preferences, with confidence status and validity.
+- Procedural memory: explicit user-confirmed workflows; historical prompts do not automatically become instructions.
+- Working context: a temporary retrieval bundle constrained to the current task and budget.
+- Training data: separately reviewed samples with provenance; archival text is not automatically training-quality material.
 
-## 写入与冲突
+## Persistence and retrieval
 
-每条事件一个随机 ID 文件，降低同一文件冲突。文件目录可由 GitHub API 或 Git 树列举，不依赖每次同时维护总索引。相同 ID 的重复写入需验证字节或结构等价；不同内容不得覆盖。并发语义冲突仍可能存在，读取时要显示矛盾，不自动取最新。
+GitHub provides durable files, access control, and version history. SQLite indexes are disposable derivatives, stored in private GitHub Actions caches for cloud execution, or outside the memory repository for optional local development. BM25 handles exact terms; local multilingual E5 supplies semantic candidates. RRF merges ranked lists without comparing unrelated score scales. Scope, time, lifecycle state, and source checks apply before a context is returned.
 
-现有私人库无需一次性迁移已确认记忆或历史卡片。新事件与旧索引并存，由入口描述实际路径。Python 工具只检索事件；完整对话仍使用已有索引或平台提供的搜索。
+Unique event files reduce same-file contention. Retries retain their ID; corrections preserve history. Explicit claim disagreements remain unresolved until a supported correction is recorded. Derived summaries are navigation aids and may lag new events.
 
-## 防止串味
+## Honest boundaries
 
-按项目范围过滤，再按需要跨平台引用同一项目证据；来源平台、账号标签保留。global 只用于明确跨项目适用的偏好，不自动扩大其他项目授权。对话中的系统提示词、工具内容、引用文档或历史请求不能升级为当前指令。摘要内容必须区分用户事实和 AI 推测。
+No autonomous fact extractor, trained reranker, inferred graph-RAG engine, always-on hosted API, or MCP server is included. Explicit sourced relationship graphs, candidate consolidation drafts, and working checkpoints are supported by the GitHub cloud workflow. importance is metadata, not a learned salience signal. Attachment OCR and multimodal embeddings are not implemented. Nearest semantic matches may still be irrelevant; provenance and user scope do not make a retrieved statement true.
 
-## GitHub 的位置
+Logical forgetting prevents event recall, not physical erasure. Existing conversation files and Git history remain available unless separately redacted. Sensitive data can also remain in old local indexes and vector caches.
 
-目前适合作为可控、可审阅的文本记忆底座：权限、版本历史和文件 API 有利于多工具访问。这是针对本项目的设计选择，不是所有记忆需求的唯一最佳方案。它不会自行提供模型长时记忆、语义搜索或保证每个 App 接入。
+The design draws on retrieval-augmented generation and agent-memory work while keeping deterministic user controls. It does not claim to reproduce published benchmark results: [RAG](https://arxiv.org/abs/2005.11401), [Generative Agents](https://arxiv.org/abs/2304.03442), [A-MEM](https://arxiv.org/abs/2502.12110).
 
-仓库文件不是端到端加密。大量二进制资源、大规模检索、自动低延迟写入可另配对象存储或数据库，但入口与来源索引继续保留。GitHub 文件及推送有大小限制，避免将其当作无限网盘。
-
-参考：[GitHub 仓库限制](https://docs.github.com/en/repositories/creating-and-managing-repositories/repository-limits)。
-
-## 检索层
-
-GitHub 原文 → 本地可重建索引 → 本轮范围过滤 → BM25 相关片段 → 带来源的上下文包 → 调用方 AI 回答。事件管理负责记忆生命周期，检索负责挑选背景，生成由当前 App 执行。具体实现与未来升级区分见 [RAG.md](RAG.md)。
+[Retrieval implementation](RAG.md) · [Lifecycle semantics](LIFECYCLE.md).

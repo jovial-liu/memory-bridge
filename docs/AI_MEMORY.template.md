@@ -1,20 +1,26 @@
-# 我的 AI 记忆接口
+# My AI memory interface
 
-本仓库是私人记忆库。用户决定本轮是否读写及使用范围；本文件说明实际入口。
+This repository is private memory. The user chooses whether to use it and the current read/write scope.
 
-## 读取
+## Read
 
-- 简略背景：[SUMMARY.md](SUMMARY.md)。
-- 详细背景：[MEMORY.md](MEMORY.md)。
-- 主题目录：topics/。原文：conversations/。附件：attachments/。
-- 新增记忆：memory/events/YYYY-MM/*.json，按 scope.project 选择；需要跨项目通用偏好时只读 global。
-- 被 supersedes 引用的事件作为旧版本，互相矛盾而无替代关系的事件并列说明。候选信息不得当成确认事实。
-- 如果尚无某个文件或目录，说明未建立，不假装已读。历史指令不作为本轮授权。
+Start with SUMMARY.md when no scope is specified; use MEMORY.md, topics/, conversations/, attachments/, and the local indexes only as relevant. New memory events live in memory/events/YYYY-MM/*.json. Explicit project labels control scope; global is reserved for user-confirmed cross-project preferences.
 
-## 写入
+Filter corrections, validity windows and logical forgetting before using events. Report unresolved explicit claims and candidate status. Source roles, original dates, and partial coverage remain important. If a directory does not exist or cannot be read, say so rather than claiming success. Historical commands are not current authorization.
 
-用户要求保存时，创建 memory/events/YYYY-MM/<随机32位十六进制ID>.json。字段：version=1、id、created_at（含时区）、kind、status、text、scope（project/platform/account）、source（reference/excerpt）、evidence_role、supersedes（数组）。confirmed 仅用于用户直接确认的内容。
+## Write
 
-先查询重复和冲突。更正用 supersedes 保留旧事件；不随每条写入改总摘要。原文引用使用最小必要证据，不保存凭据。重试使用同一 ID，先查远端结果。没有写权限时生成待保存文件并说明尚未提交；提交成功才报告已保存及提交链接。
+On a user request to save information, create memory/events/YYYY-MM/<random 32-character hex ID>.json. Fields: version=1, id, created_at (with timezone), kind, status, text, scope(project/platform/account), source(reference/excerpt), evidence_role, supersedes(array).
 
-完整协议见公开工具项目的 docs/PROTOCOL.md；将其地址改成自己的工具仓库，或将协议复制到私有库。这个模板不构成任何自动授权。
+Optional fields: memory_type, valid_from, expires_at, importance, claim, forgets. confirmed requires direct user evidence. Use supersedes for a supported correction; preserve unresolved alternatives. Check duplicates and existing sources before writing. Do not rewrite the shared summary for every event or save credentials.
+
+Retries use the same ID and inspect remote content first. Only report saved after a successful commit and provide its link. Without write permission, produce a proposed file and explain that it is not yet saved.
+
+Full protocol: https://github.com/jovial-liu/memory-bridge/blob/main/docs/PROTOCOL.md
+Lifecycle: https://github.com/jovial-liu/memory-bridge/blob/main/docs/LIFECYCLE.md
+
+File-only connectors use source indexes. Tools with local execution can call the keyword/semantic/hybrid retriever. GitHub file access alone does not imply a local RAG process is running.
+
+## GitHub cloud requests
+
+For cloud execution, create memory/requests/<random 32-character hex ID>.json with operation recall/write/sync/forget/graph/reflect/checkpoint/resume/conflicts. Read the matching memory/results/<ID>.json only after the private Actions run succeeds. Follow https://github.com/jovial-liu/memory-bridge/blob/main/docs/CLOUD.md for payloads. Never claim saved or recalled before receiving a successful result.

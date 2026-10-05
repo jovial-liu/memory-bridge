@@ -8,12 +8,62 @@ import re
 import uuid
 
 STATUSES = {'candidate', 'confirmed', 'historical', 'superseded'}
-KINDS = {'preference', 'fact', 'decision', 'project_state', 'correction'}
+KINDS = {'preference', 'fact', 'decision', 'project_state', 'correction', 'forget'}
 REQUIRED = {'version', 'id', 'created_at', 'kind', 'status', 'text', 'scope',
             'source', 'evidence_role', 'supersedes'}
 SECRET = re.compile(r'(?:gh[pousr]_[A-Za-z0-9]{30,}|sk-(?:proj-)?[A-Za-z0-9_-]{20,}|'
                     r'-----BEGIN [A-Z ]*PRIVATE KEY-----|'
                     r'(?i:password|api[_-]?key|access[_-]?token)\s*[:=]\s*\S+)')
+
+
+def instant(value):
+    when = dt.datetime.fromisoformat(value.replace('Z', '+00:00'))
+    if when.tzinfo is None:
+        raise ValueError('Timestamps require a timezone')
+    return when
+
+
+def in_time(event, at=None):
+    at = at or dt.datetime.now(dt.timezone.utc)
+    return ((not event.get('valid_from') or instant(event['valid_from']) <= at)
+            and (not event.get('expires_at') or at < instant(event['expires_at'])))
+
+
+def forgotten_ids(events):
+    hidden = {ident for e in events for ident in e.get('forgets', [])}
+    # A correction cannot accidentally resurrect a forgotten event.
+    while True:
+        extra = {e['id'] for e in events if set(e['supersedes']) & hidden}
+        if extra <= hidden:
+            break
+        hidden |= extra
+    return hidden
+
+
+def inactive_ids(events, at=None):
+    at = at or dt.datetime.now(dt.timezone.utc)
+    hidden = forgotten_ids(events)
+    hidden |= {ident for e in events for ident in e['supersedes']
+               if not e.get('valid_from') or instant(e['valid_from']) <= at}
+    return hidden
+
+
+def conflicts(events):
+    """Report explicit fact-key disagreements, never guess contradictions from prose."""
+    grouped = {}
+    hidden = inactive_ids(events)
+    for e in events:
+        claim = e.get('claim')
+        if not claim or e['id'] in hidden or e['kind'] == 'forget' or not in_time(e):
+            continue
+        if e['status'] not in {'confirmed', 'candidate'}:
+            continue
+        key = (e['scope']['project'], claim['subject'], claim['predicate'])
+        grouped.setdefault(key, []).append(e)
+    return [{'project':key[0], 'subject':key[1], 'predicate':key[2],
+             'event_ids':[e['id'] for e in rows], 'resolution':'unresolved'}
+            for key, rows in grouped.items()
+            if len({json.dumps(e['claim']['value'], sort_keys=True) for e in rows}) > 1]
 
 
 def validate(event):
@@ -27,9 +77,40 @@ def validate(event):
         raise ValueError('Memory text must be nonempty')
     if len(event['text']) > 12000:
         raise ValueError('Memory text exceeds 12000 characters; link longer source material')
-    when = dt.datetime.fromisoformat(event['created_at'].replace('Z', '+00:00'))
-    if when.tzinfo is None:
-        raise ValueError('created_at requires a timezone')
+    instant(event['created_at'])
+    for field in ('valid_from', 'expires_at'):
+        if event.get(field): instant(event[field])
+    if event.get('valid_from') and event.get('expires_at'):
+        if instant(event['valid_from']) >= instant(event['expires_at']):
+            raise ValueError('valid_from must precede expires_at')
+    if 'importance' in event and (isinstance(event['importance'], bool)
+            or not isinstance(event['importance'], (int, float))
+            or not 0 <= event['importance'] <= 1):
+        raise ValueError('importance must be between 0 and 1')
+    if event.get('memory_type', 'semantic') not in {'semantic', 'episodic', 'procedural'}:
+        raise ValueError('Invalid memory_type')
+    if 'claim' in event:
+        claim = event['claim']
+        if not isinstance(claim, dict) or not all(isinstance(claim.get(k), str) and claim[k].strip()
+                for k in ('subject', 'predicate')) or 'value' not in claim:
+            raise ValueError('claim requires subject, predicate and value')
+    targets = event.get('forgets', [])
+    if not isinstance(targets, list) or any(not isinstance(x, str) or not re.fullmatch(r'[a-f0-9]{32}', x)
+                                           for x in targets):
+        raise ValueError('forgets must contain event IDs')
+    if event['kind'] == 'forget':
+        if not targets or event['evidence_role'] != 'user' or event['supersedes'] or event['status'] != 'confirmed':
+            raise ValueError('Forget requires user evidence, targets and no supersedes')
+        if event.get('valid_from') or event.get('expires_at'):
+            raise ValueError('Forget markers are immediate and persistent')
+    elif targets:
+        raise ValueError('Only forget events may include forgets')
+    if event['id'] in targets:
+        raise ValueError('An event cannot forget itself')
+    related = event.get('related', [])
+    if not isinstance(related, list) or any(not isinstance(x,str) or not re.fullmatch(r'[a-f0-9]{32}',x) for x in related):
+        raise ValueError('related must contain event IDs')
+    if event['id'] in related: raise ValueError('An event cannot relate to itself')
     scope = event['scope']
     if not isinstance(scope, dict) or not all(isinstance(scope.get(k), str) and scope[k].strip()
                                             for k in ('project', 'platform', 'account')):
@@ -66,7 +147,7 @@ def load(root):
     known = set(ids)
     by_id = {e['id']: e for e in events}
     for event in events:
-        for old in event['supersedes']:
+        for old in event['supersedes'] + event.get('forgets', []) + event.get('related', []):
             if old not in known:
                 raise ValueError('Replacement references an unknown event')
             if by_id[old]['scope']['project'] != event['scope']['project']:
@@ -92,7 +173,7 @@ def save(root, event):
     validate(event)
     existing = load(root)
     by_id = {e['id']: e for e in existing}
-    for old in event['supersedes']:
+    for old in event['supersedes'] + event.get('forgets', []) + event.get('related', []):
         if old not in by_id or by_id[old]['scope']['project'] != event['scope']['project']:
             raise ValueError('Replacement must reference existing events in the same project')
     target = Path(root) / 'memory/events' / event['created_at'][:7] / (event['id'] + '.json')
@@ -108,10 +189,11 @@ def save(root, event):
 
 def search(root, query='', project=None, platform=None, account=None, history=False):
     events = load(root)
-    replaced = {ident for e in events for ident in e['supersedes']}
+    replaced = inactive_ids(events)
     found = []
     for e in events:
-        if not history and (e['id'] in replaced or e['status'] in {'superseded', 'historical'}):
+        if not history and (e['id'] in replaced or e['status'] in {'superseded', 'historical'}
+                            or e['kind'] == 'forget' or not in_time(e)):
             continue
         if any(value is not None and e['scope'][key] != value for key, value in
                [('project', project), ('platform', platform), ('account', account)]):
@@ -134,6 +216,7 @@ def main():
         find.add_argument('--' + field)
     find.add_argument('--history', action='store_true')
     sub.add_parser('validate', help='Validate all event files')
+    sub.add_parser('conflicts', help='Report unresolved explicit claim disagreements')
     args = parser.parse_args()
     try:
         if args.command == 'add':
@@ -144,6 +227,8 @@ def main():
         elif args.command == 'search':
             print(json.dumps(search(args.root, args.query, args.project, args.platform,
                                     args.account, args.history), ensure_ascii=False, indent=2))
+        elif args.command == 'conflicts':
+            print(json.dumps(conflicts(load(args.root)), ensure_ascii=False, indent=2))
         else:
             print(f'Validated {len(load(args.root))} memory events')
     except (ValueError, OSError, TypeError, KeyError, AttributeError, RecursionError) as exc:
