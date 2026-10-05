@@ -1,134 +1,97 @@
 # Memory Bridge
 
-**Your memory. Across AI apps. On your terms.**
+**One sentence to restore and update your context across compatible AI apps.**
 
 [![Tests](https://github.com/jovial-liu/memory-bridge/actions/workflows/tests.yml/badge.svg)](https://github.com/jovial-liu/memory-bridge/actions/workflows/tests.yml)
 [English](README.md) · [简体中文](README.zh-CN.md) · [MIT](LICENSE)
 
-Memory Bridge is a GitHub-native memory protocol and cloud retrieval toolkit for AI assistants. Keep your actual conversations and memories in a **separate private repository**. This public project contains tools, documentation, and fictional examples.
+Memory Bridge is an open-source method and reference implementation for **GitHub-backed external AI memory**. This public repository presents the design and provides reusable tools, protocols, templates, tests and fictional examples. Your real personal context belongs in your own **separate private repository**.
 
-Once an assistant knows your private repository and has the necessary GitHub access, ask:
+## One sentence, not another introduction
 
-> Read my memory. Restore only the context relevant to this project.
+After authorizing a compatible AI app to access your private repository, use this in a new chat or an existing conversation:
 
-> Save the decision we just made, with its source and date.
+> Use my GitHub memory YOUR_ACCOUNT/PRIVATE_MEMORY: read AI_MEMORY.md, then enable relevant recall and timely updates for this conversation.
 
-> Don't use historical memory for this conversation.
+> 使用我的 GitHub 记忆库 YOUR_ACCOUNT/PRIVATE_MEMORY：读取 AI_MEMORY.md，开启本对话的记忆读取和更新。
 
-No shared cloud memory account is required. A GitHub integration still needs to support the requested operation: a read-only connector cannot write, and a connector must be able to submit request files to use cloud retrieval.
+The assistant restores small core context, retrieves relevant evidence as needed, and saves meaningful sourced changes during the conversation. It checks actual processing receipts instead of treating a request commit as success. New chats load the entry again; the previous model's hidden state is not being transferred.
 
-## Create your private memory — no laptop setup
+**This does not require a vendor-native memory store, but it does require authorized GitHub tools.** Read-only connections cannot write. A prompt cannot grant missing permissions, bypass app restrictions, guarantee every model follows the protocol, or recover unseen chat history. Never paste credentials into the sentence.
 
-[**Create a private memory repository**](https://github.com/jovial-liu/memory-bridge/generate) → choose **Private** → open **Actions → Initialize Private Memory → Run workflow**. Connect your AI app to your new repository and ask it to read `AI_MEMORY.md`.
+[How the method works](docs/METHOD.md) · [One-prompt contract and app boundaries](docs/ONE_PROMPT.md)
 
-The template includes the complete runtime, cloud workflows, blank memory structure, protocol, and tests. No developer token or external database is required for Actions itself. Your AI connector needs separately authorized repository access. Existing personal data is never overwritten by initialization. Public copies cannot run memory processing.
+## Create your own private memory
 
-[Step-by-step setup and first request](docs/QUICKSTART.md) · [Agent memory architecture](docs/ARCHITECTURE.md)
+[**Use this template**](https://github.com/jovial-liu/memory-bridge/generate) → choose **Private** → **Actions → Initialize Private Memory → Run workflow** → authorize your AI app for that repository.
 
-## What works today
+Open the generated **START_HERE.md**: it contains English and Chinese activation sentences with your own repository already filled in. AI_MEMORY.md is the authoritative session contract; AGENTS.md routes supporting agents to it. Initialization creates missing files and never overwrites existing personal records. Public copies do not run personal-memory processing.
+
+GitHub Actions runs retrieval and memory management; no laptop model or permanent server is required. The optional CLI is for development or clients with shell access. Your AI app still needs its own authorized integration.
+
+[Complete setup](docs/QUICKSTART.md) · [Cloud protocol](docs/CLOUD.md) · [Agent architecture](docs/ARCHITECTURE.md)
+
+## What is implemented
 
 | Capability | Implementation |
 | --- | --- |
-| Semantic retrieval | GitHub-hosted multilingual E5, quantized ONNX, normalized embeddings |
-| Hybrid retrieval | SQLite FTS5/BM25 + reciprocal rank fusion (RRF) |
-| Scoped recall | Project, platform, account, topic, and memory-type filters |
-| Traceable context | Source path, distinct passage offsets/text lines, SHA-256, sender, participants, role, time precision, and coverage |
-| Memory lifecycle | Stable/evolving/temporary state, validity windows, explicit corrections, exact-write deduplication, and logical forgetting |
-| Conflict reporting | Disagreements on explicit subject/predicate/value claims; no automatic winner |
-| Batched/concurrent writes | One request can atomically carry 1..100 events; exact duplicates are reused; retries are idempotent |
-| Rebuildable indexes | GitHub Actions SQLite cache; source-change invalidation and reusable embedding cache |
-| Relationship memory | Explicit source-backed graph edges and event links |
-| Working memory | Scoped task checkpoints/resume plus generated NOW.md current-state view |
-| Reflection | Candidate-only evidence consolidation drafts |
-| User control | Per-task scope, character-budgeted context bundles, and status.json request observability |
-| Privacy gates | Before-upload client guard, staging sanitizer, cloud/index rejection, optional encrypted-original vault |
-| Readable imports | Text, JSON/JSONL, CSV, official ChatGPT exports; unknown speakers and dates stay unknown |
-| Regression evaluation | Labelled source, multiple-passage, scope, role and freshness checks; no external benchmark score claim |
-| Connector client | Optional `bridge.py` request submission/waiting; model and RAG run on GitHub |
+| One-prompt onboarding | Repository-bound bilingual starter; a conversation-scoped read/write contract |
+| Semantic and hybrid retrieval | Multilingual E5 with quantized ONNX; SQLite FTS5/BM25 and reciprocal rank fusion |
+| Scoped evidence | Project, platform, account, topic and memory-type filters; context budgets |
+| Traceable answers | Source paths, distinct passage offsets, hashes, roles, time precision and coverage |
+| Current state | Bounded generated NOW.md and scoped checkpoints/resume |
+| Lifecycle and correction | Validity windows, explicit supersession, provenance-aware deduplication and logical forgetting |
+| Relationships | Explicit source-backed claims and links; unresolved conflicts remain visible |
+| Write reliability | Batch preflight, per-request failure isolation, verifiable receipts and outcome-aware status |
+| Reflection | Candidate-only evidence consolidation, not autonomous fact promotion |
+| Privacy | Before-upload checks, optional encrypted originals, separate public code/private data |
+| Evaluation | Synthetic software tests and source-labelled regressions; no universal memory-accuracy claim |
 
-These are retrieval and memory-management components. The calling AI app generates answers. GitHub Actions provides batch cloud execution. There is no always-on hosted API, automatic cross-account export, autonomous fact extraction, trained reranker, or fine-tuning job.
+The calling assistant decides what is relevant and generates responses. The toolkit stores, validates and retrieves evidence. There is no always-on hosted API, automatic whole-account export, autonomous extraction model, trained reranker, model-weight continual learning or RSI implemented here. Filesystem batch rollback is not a crash-atomic database transaction; see [reliability semantics](docs/RELIABILITY.md).
 
-## Run entirely on GitHub
+## Two repositories, distinct responsibilities
 
-Use the [GitHub-native workflow](docs/CLOUD.md). Submit a request file from your AI app's GitHub integration; GitHub Actions executes recall/write/sync, relationship queries, reflection drafts and task checkpoints, then commits results to your private repository. Models and indexes are cached on GitHub. **No laptop runtime is required.**
+```text
+public memory-bridge            your private memory
+  method + source code            START_HERE.md    copy your one sentence
+  protocols + templates           AI_MEMORY.md     session contract
+  synthetic tests                 SUMMARY.md       compact core context
+  fictional examples              memory/NOW.md    current state
+                                  memory/events/   sourced facts and changes
+                                  conversations/   archival evidence
+                                  memory/requests/ submitted operations
+                                  memory/results/ outcome receipts
+```
 
-One prompt: “Use my GitHub memory: read relevant context first, then save what I explicitly confirm, with record links.”
+Anyone can reuse the public method and implementation under the repository license. Creating a private copy does not expose anyone else's memory or share account credentials. Existing archives may remain in place. Derived summaries and caches are not the sole source of truth.
 
-[Cloud setup and request operations](docs/CLOUD.md) · [workflow template](templates/memory-cloud.yml)
+## Optional local/development usage
 
-[One-prompt connector protocol](docs/ONE_PROMPT.md) · [Privacy and encrypted originals](docs/PRIVACY.md) · [Readable imports](docs/IMPORTS.md) · [Evaluation](docs/EVALUATION.md)
-
-## Optional local/development quick start
-
-Python 3.10+ with SQLite FTS5. Basic event management and keyword retrieval use the standard library. Semantic retrieval has optional dependencies.
+Python 3.10+ with SQLite FTS5. Basic event handling and keyword retrieval use the standard library; semantic retrieval has optional dependencies.
 
 ```sh
 git clone https://github.com/jovial-liu/memory-bridge.git
 cd memory-bridge
-
-# PRIVATE_MEMORY is your separate private memory checkout.
-python3 memory_bridge.py --root ../PRIVATE_MEMORY add examples/event.json
+python3 initialize.py --root ../PRIVATE_MEMORY --repository YOUR_ACCOUNT/PRIVATE_MEMORY
 python3 memory_bridge.py --root ../PRIVATE_MEMORY search --project demo
-python3 memory_bridge.py --root ../PRIVATE_MEMORY conflicts
-
-# Keep derived indexes outside both repositories.
 python3 rag.py --root ../PRIVATE_MEMORY --db ../memory-index.sqlite3 index
 python3 rag.py --root ../PRIVATE_MEMORY --db ../memory-index.sqlite3 retrieve 'research' --mode keyword
 ```
 
-The example event is fictional; do not mistake it for your personal background.
+The disposable index stays outside the archive. For model download, content-addressed vector caching and hybrid context generation, see [RAG.md](docs/RAG.md). `bridge.py` is an optional authorized GitHub client; using it does not certify another vendor's connector.
 
-### Semantic and hybrid retrieval
+## Documentation and tests
 
-```sh
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -r requirements-vector.txt
-
-# Explicit download of a pinned public model. No memory text is sent.
-python3 rag.py --root ../PRIVATE_MEMORY --db ../memory-index.sqlite3 download-model --model-dir ../e5-model
-python3 rag.py --root ../PRIVATE_MEMORY --db ../memory-index.sqlite3 embed --model-dir ../e5-model
-python3 rag.py --root ../PRIVATE_MEMORY --db ../memory-index.sqlite3 context 'my model training work' --mode hybrid --model-dir ../e5-model --budget 12000
-```
-
-Full-corpus encoding may take time. `embed --memory-only` is an explicit smaller option for curated memories; results disclose this limited vector coverage. Keyword retrieval can still cover the full text archive. A rerun reuses cached embeddings. Model files and indexes stay outside the memory repository.
-
-## Two repositories, different roles
-
-```text
-public toolkit                 private memory
-  code + protocol                AI_MEMORY.md     entry point
-  fictional examples             SUMMARY.md       short navigation
-  tests + documentation          MEMORY.md        detailed navigation
-                                 topics/          topic indexes
-                                 conversations/   per-platform evidence
-                                 attachments/     source-linked files
-                                 memory/events/   append-only memory events
-                                 training/        separately reviewed datasets
-```
-
-Copy [the entry template](docs/AI_MEMORY.template.md) into your private repository as `AI_MEMORY.md`. Existing conversation archives and confirmed-memory files can remain in place. [Connector setup](docs/CONNECTORS.md) explains the one-sentence workflow and required capabilities.
-
-## Documentation
-
-- [Read/write protocol](docs/PROTOCOL.md)
-- [Semantic retrieval, hybrid search, and context budgets](docs/RAG.md)
-- [Temporal validity, conflicts, and forgetting](docs/LIFECYCLE.md)
-- [Architecture and boundaries](docs/DESIGN.md)
-- [Preparing future training data](docs/TRAINING.md)
-
-## Tests
+[Method](docs/METHOD.md) · [One prompt](docs/ONE_PROMPT.md) · [Read/write protocol](docs/PROTOCOL.md) · [Cloud execution](docs/CLOUD.md) · [Lifecycle](docs/LIFECYCLE.md) · [Reliability](docs/RELIABILITY.md) · [Privacy](docs/PRIVACY.md) · [Imports](docs/IMPORTS.md) · [Evaluation](docs/EVALUATION.md) · [Future training data](docs/TRAINING.md)
 
 ```sh
 python3 -m unittest discover -s tests -v
 ```
 
-Install NumPy to include deterministic vector-pipeline tests. The unit suite does not download a model. Real-model integration checks are separate; passing pipeline tests is not a production relevance benchmark.
+NumPy enables deterministic vector tests. Unit tests do not download a model; real-model integration checks and vendor-app trials are separate. Passing tests is not an external benchmark score or a guarantee of perfect memory.
 
-## Privacy and limits
+## Privacy and limitations
 
-Private repositories provide access control, not end-to-end encryption. An app can read data you authorize it to access. Credential detection is limited pattern matching. Logical forgetting suppresses events from normal recall; it does **not** erase source conversations, embedding caches, or Git history. See the lifecycle documentation before relying on erasure.
+Private GitHub repositories provide access control, not end-to-end encryption. Authorized apps can process the data they read. Credential checks are limited pattern matching. Logical forgetting does not erase Git history, original conversations or old caches. History is evidence, not current authorization; unknown message authors stay unknown.
 
-Nearest-neighbor results are candidates, not proof of relevance or truth. Inferred message roles and partial UI exports remain explicitly labeled. Historical instructions never become current authorization. Large videos and model weights belong in separate storage, with references in the memory archive.
-
-GitHub stores the durable evidence and history; GitHub-hosted Actions can perform retrieval and management. Local execution is an optional development mode. [GitHub repository limits](https://docs.github.com/en/repositories/creating-and-managing-repositories/repository-limits) apply.
+An activation sentence requests scoped updates, not full chat export or unrelated actions. Honor read-only, do-not-save and stop commands. [GitHub repository limits](https://docs.github.com/en/repositories/creating-and-managing-repositories/repository-limits) and each app's capabilities still apply.
