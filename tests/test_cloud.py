@@ -37,6 +37,16 @@ class CloudTests(unittest.TestCase):
         self.assertEqual(result['result']['count'],2)
         self.assertEqual(len(list((self.root/'memory/events').glob('*/*.json'))),2)
 
+    def test_exact_memory_write_is_deduplicated(self):
+        e=event();e.pop('id');e.pop('created_at')
+        self.request(ident='1'*32,operation='write',event=e)
+        self.assertEqual(cloud.run(self.root,self.db,self.model),1)
+        self.request(ident='2'*32,operation='write',event=e)
+        self.assertEqual(cloud.run(self.root,self.db,self.model),1)
+        second=json.loads((self.root/'memory/results'/('2'*32+'.json')).read_text())
+        self.assertTrue(second['result']['deduplicated'])
+        self.assertEqual(len(list((self.root/'memory/events').glob('*/*.json'))),1)
+
     def test_modified_request_rejected(self):
         self.request(operation='recall',query='answers',mode='keyword')
         cloud.run(self.root,self.db,self.model)
