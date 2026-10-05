@@ -199,7 +199,9 @@ def bundle(results, budget=12000):
     for item in results:
         header = (f"[{item['citation']}] {item['path']} message={item['message_index']} "
                   f"offset={item['char_offset']} role={item['role']} status={item['status']} "
-                  f"project={item['project']} coverage={item['coverage']}\n")
+                  f"project={item['project']} platform={item['platform']} account={item['account']} "
+                  f"time={item['timestamp']} role_status={item['role_status']} "
+                  f"coverage={item['coverage']} sha256={item['sha256']}\n")
         remaining = budget - len(text) - len(header) - 2
         if remaining <= 0:
             break
