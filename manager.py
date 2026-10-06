@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import re
 import memory_bridge
+import sessions
 
 
 def graph(root, project, entity=None, hops=1):
@@ -65,23 +66,36 @@ def checkpoint(root,ident,payload):
     item=dict(id=ident,project=payload['project'],task_id=payload['task_id'],state=state,source=source,
               status='candidate',created_at=dt.datetime.now(dt.timezone.utc).isoformat(),
               interpretation='Reported task state; verify before resuming actions')
+    if payload.get('session_context') is not None:
+        item['session_context'] = sessions.origin(payload['session_context'])
     folder=Path(root)/'memory/working';folder.mkdir(parents=True,exist_ok=True)
     path=folder/(ident+'.json')
     if path.exists():
         prior=json.loads(path.read_text())
-        if all(prior.get(key)==item[key] for key in ('project','task_id','state','source')):return prior
+        if (all(prior.get(key)==item[key] for key in ('project','task_id','state','source'))
+                and prior.get('session_context') == item.get('session_context')):return prior
         raise ValueError('Checkpoint ID collision')
     with path.open('x') as f:f.write(json.dumps(item,ensure_ascii=False,indent=2)+'\n')
     return item
 
 
-def resume(root,project,task_id):
+def resume(root,project,task_id,context=None,resume_session_id=None):
+    """Default to this actor/conversation; cross-conversation handoff is explicit."""
+    if context is not None:
+        sessions.validate_context(context)
+    if resume_session_id is not None and (context is None or not isinstance(resume_session_id,str) or not re.fullmatch(r'[a-f0-9]{32}',resume_session_id)):
+        raise ValueError('Explicit session handoff requires context and a valid session ID')
     states=[]
     for path in (Path(root)/'memory/working').glob('*.json'):
         state=json.loads(path.read_text())
+        saved=state.get('session_context')
+        if context is None:
+            if saved is not None:continue  # Old clients cannot accidentally adopt another session.
+        elif (not isinstance(saved,dict) or saved.get('actor_id')!=context['actor_id']
+              or saved.get('session_id')!=(resume_session_id or context['session_id'])):
+            continue
         if state.get('project')==project and state.get('task_id')==task_id:
             states.append(state)
-    # ISO strings with different UTC offsets are not lexicographically chronological.
     states.sort(key=lambda x:(memory_bridge.instant(x['created_at']),x['id']))
     return dict(project=project,task_id=task_id,checkpoint=states[-1] if states else None,
                 interpretation='Historical checkpoint, not proof that tasks are currently running')

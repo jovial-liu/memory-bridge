@@ -14,6 +14,7 @@ import tempfile
 import memory_bridge
 import privacy
 import rag
+import sessions
 
 WRITE_OPS = {'write', 'sync', 'forget'}
 SCOPES = ('project', 'platform', 'account', 'topic', 'memory_type')
@@ -69,7 +70,7 @@ def validate_request(item, ident):
     if not isinstance(item, dict) or not ID.fullmatch(ident) or item.get('id') != ident:
         raise ValueError('Request ID/path mismatch')
     op = item.get('operation', 'recall')
-    if op not in {'recall', 'write', 'sync', 'forget', 'graph', 'reflect', 'checkpoint', 'resume', 'conflicts', 'evaluate'}:
+    if op not in {'recall', 'write', 'sync', 'forget', 'graph', 'reflect', 'checkpoint', 'resume', 'conflicts', 'evaluate', 'revision'}:
         raise ValueError('Unsupported operation')
     if op in {'recall', 'sync'}:
         if not isinstance(item.get('query'), str) or not 1 <= len(item['query'].strip()) <= 2000:
@@ -82,6 +83,11 @@ def validate_request(item, ident):
         raise ValueError('Write-like operations require event or events')
     if item.get('created_at'):
         memory_bridge.instant(item['created_at'])
+    if 'context' in item:
+        sessions.validate_context(item['context'])
+    if 'resume_session_id' in item:
+        if op != 'resume' or not isinstance(item['resume_session_id'], str) or not ID.fullmatch(item['resume_session_id']) or 'context' not in item:
+            raise ValueError('Explicit session resume requires a valid context and session ID')
     if item.get('mode', 'hybrid') not in {'keyword', 'semantic', 'hybrid'}:
         raise ValueError('Invalid query mode')
     for key, default, low, high in [('limit', 8, 1, 50), ('budget', 12000, 300, 50000)]:
@@ -142,11 +148,10 @@ def pending(root, quarantine=False):
         raw = path.read_bytes()
         digest = hashlib.sha256(raw).hexdigest()
         ident = path.stem
-        # Invalid filenames receive opaque failure IDs, not echoed input content.
         failure_id = ident if ID.fullmatch(ident) else hashlib.sha256(path.name.encode()).hexdigest()[:32]
         failure = root / 'memory/failures' / (failure_id + '.json')
         if quarantine and failure.exists():
-            continue  # Terminal failure: repair with a fresh request ID.
+            continue
         try:
             item = validate_request(json.loads(raw), ident)
             result = root / 'memory/results' / (ident + '.json')
@@ -184,9 +189,9 @@ def write_event(root, item, event=None, index=0, total=1, kind=None):
     timestamp = own['created_at'] if own else item.get('created_at', utcnow())
     event.update(version=1, id=ident, created_at=timestamp)
     event.setdefault('supersedes', [])
-    memory_bridge.validate(event)  # Validate BEFORE considering reuse.
+    memory_bridge.validate(event)
     if own is not None:
-        path = memory_bridge.save(root, event)  # Detect a changed retry, even if another event matches.
+        path = memory_bridge.save(root, event)
         return dict(event_id=ident, path=path.relative_to(root).as_posix(), deduplicated=False)
     structural = any(event.get(k) for k in ('supersedes', 'related', 'forgets'))
     reusable = event['kind'] in {'fact', 'preference', 'decision'} and event.get('memory_type', 'semantic') != 'episodic'
@@ -203,19 +208,25 @@ def write_event(root, item, event=None, index=0, total=1, kind=None):
 
 
 def write_events(root, item, kind=None):
-    """Preflight the ENTIRE request, including reference integrity, in an isolated event tree.
+    """Guard the session, then preflight the entire request in an isolated event tree.
 
-    Git publication is atomic. Filesystem writes use rollback on ordinary I/O exceptions;
-    this is not a multi-file crash-atomic database transaction. Stable IDs permit retries.
+    Git publication is atomic. Filesystem rollback handles ordinary I/O exceptions,
+    not every possible crash. Stable IDs support retries.
     """
     root = Path(root)
-    events = request_events(item)
+    normalized = {k: v for k, v in item.items() if k not in {'event', 'events'}}
+    normalized['events'] = request_events(item)
+    if kind:
+        for e in normalized['events']:
+            e['kind'] = kind
+    guarded = sessions.prepare_write(root, normalized, memory_bridge.load(root))
+    events = guarded['events']
     with tempfile.TemporaryDirectory(prefix='memory-preflight-') as folder:
         staged = Path(folder)
         original = root / 'memory/events'
         if original.exists():
             shutil.copytree(original, staged / 'memory/events')
-        request = dict(item)
+        request = dict(guarded)
         request.setdefault('created_at', utcnow())
         rows = [write_event(staged, request, e, i, len(events), kind) for i, e in enumerate(events)]
         memory_bridge.load(staged)
@@ -241,10 +252,11 @@ def write_events(root, item, kind=None):
 
 
 def receipt(item, digest):
-    return dict(id=item['id'], request_sha256=digest, generated_at=utcnow(),
-                execution='github-actions', operation=item.get('operation', 'recall'),
-                status='succeeded', base_commit=os.environ.get('GITHUB_SHA', 'unknown'),
-                workflow_url=os.environ.get('MEMORY_RUN_URL', 'unknown'))
+    row = dict(id=item['id'], request_sha256=digest, generated_at=utcnow(),
+               execution='github-actions', operation=item.get('operation', 'recall'),
+               status='succeeded', base_commit=os.environ.get('GITHUB_SHA', 'unknown'),
+               workflow_url=os.environ.get('MEMORY_RUN_URL', 'unknown'))
+    return sessions.bind_receipt(row, item)
 
 
 def finish(root, row):
@@ -252,19 +264,19 @@ def finish(root, row):
     print('Processed request ' + row['id'] + ' status=' + row['status'], flush=True)
 
 
-def fail(row, stage):
-    # Never serialize exception messages: they can contain private text or credentials.
-    row.update(status='failed', error_code=stage,
-               retry='Review the source request and use a new request ID.')
+def fail(row, stage, error=None):
+    # Never serialize arbitrary exception text; it can contain private content.
+    code = error.code if isinstance(error, sessions.SessionConflict) else stage
+    row.update(status='failed', error_code=code,
+               retry='Reload the affected evidence, reconcile changes, then use a new request ID. Do not blindly replace revision tokens.')
 
 
 def run(root, db, model_dir):
     import manager
     root = Path(root).resolve()
     jobs = pending(root, quarantine=True)
-    memory_bridge.load(root)  # Corrupt canonical storage is a global integrity error.
+    memory_bridge.load(root)
     remaining = []
-    # Isolate each request. Durable writes are not held hostage by embedding initialization.
     for item, digest in jobs:
         op = item.get('operation', 'recall')
         row = receipt(item, digest)
@@ -273,10 +285,9 @@ def run(root, db, model_dir):
                 result = write_events(root, item, 'forget' if op == 'forget' else None)
                 row['write' if op == 'sync' else 'result'] = result
             elif op == 'checkpoint':
-                payload = dict(item.get('checkpoint', {})); payload['project'] = item['project']
-                row['result'] = manager.checkpoint(root, item['id'], payload)
-        except Exception:
-            fail(row, 'write_or_checkpoint_failed')
+                row['result'] = manager.checkpoint(root, item['id'], sessions.checkpoint_payload(root, item))
+        except Exception as exc:
+            fail(row, 'write_or_checkpoint_failed', exc)
             finish(root, row)
             continue
         if op in {'write', 'forget', 'checkpoint'}:
@@ -306,7 +317,6 @@ def run(root, db, model_dir):
                 embed(root, db, provider, batch_size=64, scopes=scopes)
             except Exception:
                 semantic_error = True
-    # Reflection mutations run last so they do not invalidate the current retrieval snapshot.
     remaining.sort(key=lambda pair: pair[0].get('operation') == 'reflect' and pair[0].get('save', False))
     for item, row in remaining:
         op = item.get('operation', 'recall')
@@ -323,12 +333,18 @@ def run(root, db, model_dir):
                     hits = retrieve(root, db, item['query'], provider, mode, item.get('limit', 8), **filters)
                 row.update(mode=mode, filters=filters, results=hits, index_snapshot=rag.snapshot(root),
                            context=rag.bundle(hits, item.get('budget', 12000)))
+                if item.get('context'):
+                    row['actor_filter_enforced'] = False
+                    row['attribution_notice'] = 'Shared archive retrieval is not an actor ACL. Verify the speaker and source before adopting a hit.'
             elif op == 'resume':
-                row['result'] = manager.resume(root, item['project'], item.get('task_id'))
+                row['result'] = manager.resume(root, item['project'], item.get('task_id'),
+                                               item.get('context'), item.get('resume_session_id'))
             elif op == 'graph':
                 row['result'] = manager.graph(root, item['project'], item.get('entity'), item.get('hops', 1))
             elif op == 'conflicts':
                 row['result'] = memory_bridge.conflicts(memory_bridge.load(root))
+            elif op == 'revision':
+                row['result'] = sessions.snapshot(memory_bridge.load(root), sessions.read_policy(root))
             elif op == 'evaluate':
                 from evaluate import evaluate
                 evaluation_db = Path(db).with_name(Path(db).stem + '.evaluation.sqlite3')
@@ -344,11 +360,11 @@ def run(root, db, model_dir):
                                  scope=dict(project=item['project'], platform='memory-cloud', account='unknown'),
                                  source=dict(reference='memory/results/' + item['id'] + '.json', excerpt='Derived from event IDs: ' + ','.join(e['id'] for e in rows)),
                                  evidence_role='assistant', supersedes=[], related=[e['id'] for e in rows])
-                    row['draft'] = write_event(root, {**item, 'event': draft})
-        except Exception:
-            fail(row, 'operation_failed')
+                    row['draft'] = write_events(root, {**item, 'event': draft})
+        except Exception as exc:
+            fail(row, 'operation_failed', exc)
             if 'write' in row:
-                row['write_applied'] = True  # sync write succeeded; recall failed. Do not hide that.
+                row['write_applied'] = True
         finish(root, row)
     return len(jobs)
 
@@ -362,6 +378,7 @@ def build_now(root, limit=12, budget=6000):
             and (e.get('stability') in {'temporary', 'evolving'} or e['kind'] == 'project_state' or e.get('expires_at'))]
     rows.sort(key=lambda e: (float(e.get('importance', 0)), memory_bridge.instant(e['created_at']), e['id']), reverse=True)
     conflicts = {i for group in memory_bridge.conflicts(events) for i in group['event_ids']}
+    policy = sessions.read_policy(root)
     lines = ['# NOW · current memory state', '', '> GENERATED from memory/events; do not edit manually.',
              '', 'Generated: ' + utcnow(), '',
              'Snapshot, not a fresh confirmation. Check validity and sources before acting.',
@@ -371,7 +388,7 @@ def build_now(root, limit=12, budget=6000):
         warning = 'UNRESOLVED CONFLICT · ' if e['id'] in conflicts else ''
         path = 'events/' + e['created_at'][:7] + '/' + e['id'] + '.json'
         block = '- ' + warning + e['text'].replace('\n', ' ') + '\n  [' + e['scope']['project'] + ' · source](' + path + ')'
-        block += ' · recorded ' + e['created_at']
+        block += ' · actor ' + sessions.actor(e, policy) + ' · recorded ' + e['created_at']
         if e.get('expires_at'):
             block += ' · expires ' + e['expires_at']
         block += '\n'
@@ -428,14 +445,15 @@ def status_snapshot(root, phase='idle'):
                    status_semantics='Snapshot; historical failed evaluations count as failed; not live worker liveness.')
     try:
         build_now(root)
+        payload['memory_revision'] = sessions.write_snapshot(root)['revision']
     except Exception:
         payload['view_error'] = 'event_corpus_or_projection_failed'
     write_json(root / 'memory/status.json', payload)
-    return payload  # A bad event corpus must not suppress the status report.
+    return payload
 
 
 def publish(root, status_only=False):
-    """Never force-push. Preserve concurrent edits; refresh projections after a successful rebase."""
+    """Never force-push; do not merge already-validated writes across changed canonical data."""
     root = Path(root)
     def git(*args):
         return subprocess.run(['git', '-C', str(root), *args], check=True, capture_output=True, text=True)
@@ -444,7 +462,7 @@ def publish(root, status_only=False):
         raise ValueError('Invalid destination branch')
     git('config', 'user.name', 'github-actions[bot]')
     git('config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com')
-    names = ['memory/status.json'] if status_only else ['memory/results', 'memory/events', 'memory/failures', 'memory/working', 'memory/status.json', 'memory/NOW.md']
+    names = ['memory/status.json'] if status_only else ['memory/results', 'memory/events', 'memory/failures', 'memory/working', 'memory/status.json', 'memory/NOW.md', 'memory/revision.json']
     paths = [name for name in names if (root / name).exists()]
     if not paths:
         return
@@ -457,7 +475,12 @@ def publish(root, status_only=False):
             git('push', 'origin', 'HEAD:' + branch)
             return
         except subprocess.CalledProcessError:
+            old_remote = git('rev-parse', 'origin/' + branch).stdout.strip()
             git('fetch', 'origin', branch)
+            changed = git('diff', '--name-only', old_remote, 'origin/' + branch, '--',
+                          'memory/events', 'memory/working', 'memory/session-policy.json').stdout.strip()
+            if changed and not status_only:
+                raise ValueError('Canonical data changed during publication; retry from a fresh checkout') from None
             try:
                 git('rebase', 'origin/' + branch)
             except subprocess.CalledProcessError:

@@ -6,6 +6,7 @@ immutable request IDs, receipts, and non-forcing Git publication remain authorit
 import argparse
 import json
 from pathlib import Path
+import sessions
 
 FAST_OPERATIONS = frozenset({'write', 'forget', 'checkpoint'})
 
@@ -16,7 +17,7 @@ def drain(root, publish=False):
     import manager
 
     root = Path(root).resolve()
-    memory_bridge.load(root)  # Fail closed on damaged canonical storage.
+    memory_bridge.load(root)
     before = set((root / 'memory/failures').glob('*.json'))
     jobs = cloud.pending(root, quarantine=True)
     selected = [(item, digest) for item, digest in jobs
@@ -27,13 +28,13 @@ def drain(root, publish=False):
         row = cloud.receipt(item, digest)
         try:
             if op == 'checkpoint':
-                payload = dict(item.get('checkpoint', {}))
-                payload['project'] = item['project']
+                payload = sessions.checkpoint_payload(root, item)
                 row['result'] = manager.checkpoint(root, item['id'], payload)
             else:
                 row['result'] = cloud.write_events(root, item, 'forget' if op == 'forget' else None)
-        except Exception:
-            cloud.fail(row, 'write_or_checkpoint_failed')
+        except Exception as exc:
+            code = exc.code if isinstance(exc, sessions.SessionConflict) else 'write_or_checkpoint_failed'
+            cloud.fail(row, code)
             failed += 1
         cloud.finish(root, row)
     quarantined = len(set((root / 'memory/failures').glob('*.json')) - before)
@@ -42,7 +43,7 @@ def drain(root, publish=False):
     if selected or quarantined:
         cloud.status_snapshot(root, 'running' if result['deferred'] else 'completed')
         if publish:
-            cloud.publish(root)  # Raise on publication failure. Never claim remote success early.
+            cloud.publish(root)
             result['publication'] = 'git_publish_completed'
     elif publish:
         result['publication'] = 'no_changes'
@@ -57,7 +58,6 @@ def main():
     try:
         result = drain(args.root, args.publish)
     except Exception:
-        # Do not expose private request text in exception messages.
         parser.exit(2, 'Fast stage failed; inspect canonical integrity and publication access.\n')
     print(json.dumps(result, sort_keys=True))
     if result['failed'] or result['quarantined']:
